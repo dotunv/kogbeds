@@ -22,18 +22,12 @@ export class PostsController {
   constructor(private readonly postsService: PostsService) {}
 
   @Post()
-  create(
-    @CurrentUser('id') userId: string,
-    @Body() dto: CreatePostDto,
-  ) {
+  create(@CurrentUser('id') userId: string, @Body() dto: CreatePostDto) {
     return this.postsService.createForOwner(userId, dto);
   }
 
   @Get()
-  list(
-    @CurrentUser('id') userId: string,
-    @Query() query: ListPostsQueryDto,
-  ) {
+  list(@CurrentUser('id') userId: string, @Query() query: ListPostsQueryDto) {
     return this.postsService.listForOwner(userId, query);
   }
 

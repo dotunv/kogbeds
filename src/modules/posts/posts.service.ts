@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Post, Prisma } from '@prisma/client';
-import { marked } from 'marked';
+import MarkdownIt from 'markdown-it';
 import { BlogsService } from '../blogs/blogs.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreatePostDto } from './dto/create-post.dto';
@@ -14,6 +14,12 @@ import {
   PostStatusFilter,
 } from './dto/list-posts.query.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
+
+const markdown = new MarkdownIt({
+  html: false,
+  linkify: true,
+  typographer: false,
+});
 
 @Injectable()
 export class PostsService {
@@ -28,7 +34,7 @@ export class PostsService {
       throw new ForbiddenException('No blog found for current user');
     }
 
-    const html = await marked.parse(dto.contentMarkdown);
+    const html = markdown.render(dto.contentMarkdown);
 
     try {
       return await this.prisma.post.create({
@@ -47,7 +53,10 @@ export class PostsService {
     }
   }
 
-  async listForOwner(userId: string, query: ListPostsQueryDto): Promise<Post[]> {
+  async listForOwner(
+    userId: string,
+    query: ListPostsQueryDto,
+  ): Promise<Post[]> {
     const blog = await this.blogsService.findByOwnerId(userId);
     if (!blog) {
       throw new ForbiddenException('No blog found for current user');
@@ -84,7 +93,7 @@ export class PostsService {
     return post;
   }
 
-  async update(
+  async updateForOwner(
     userId: string,
     postId: string,
     dto: UpdatePostDto,
@@ -93,7 +102,7 @@ export class PostsService {
 
     let contentHtml: string | undefined;
     if (dto.contentMarkdown !== undefined) {
-      contentHtml = await marked.parse(dto.contentMarkdown);
+      contentHtml = markdown.render(dto.contentMarkdown);
     }
 
     try {
