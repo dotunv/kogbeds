@@ -9,6 +9,7 @@ import { UsersModule } from './modules/users/users.module';
 import { BlogsModule } from './modules/blogs/blogs.module';
 import { PostsModule } from './modules/posts/posts.module';
 import { PublicModule } from './modules/public/public.module';
+import { DiscoverModule } from './modules/discover/discover.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { PublicModule } from './modules/public/public.module';
     BlogsModule,
     PostsModule,
     PublicModule,
+    DiscoverModule,
   ],
   controllers: [AppController],
   providers: [AppService],

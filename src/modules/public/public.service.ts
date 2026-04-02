@@ -28,6 +28,7 @@ export type PublicBlogView = {
   title: string;
   description: string | null;
   customCss: string | null;
+  isPublic: boolean;
   username: string;
 };
 
@@ -87,6 +88,7 @@ export class PublicService {
       title: blog.title,
       description: blog.description,
       customCss: blog.customCss,
+      isPublic: true,
       username: blog.owner.username,
     };
   }
@@ -119,6 +121,7 @@ export class PublicService {
       title: blog.title,
       description: blog.description,
       customCss: blog.customCss,
+      isPublic: true,
       username: blog.owner.username,
     };
   }

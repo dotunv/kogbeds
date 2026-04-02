@@ -35,6 +35,35 @@ type RenderPostInput = {
   };
 };
 
+type DiscoverPostItem = {
+  title: string;
+  slug: string;
+  publishedAt: Date | null;
+  updatedAt: Date;
+  blog: {
+    title: string;
+    username: string;
+  };
+};
+
+type RenderDiscoverInput = {
+  appDomain: string;
+  posts: DiscoverPostItem[];
+};
+
+type RenderDiscoverFeedXmlInput = {
+  siteBaseUrl: string;
+  appDomain: string;
+  items: DiscoverPostItem[];
+};
+
+const formatDate = (value: Date | null): string | null => {
+  if (!value) {
+    return null;
+  }
+  return new Date(value).toISOString().slice(0, 10);
+};
+
 const pageShell = (
   title: string,
   bodyContent: string,
@@ -75,9 +104,7 @@ export const renderBlogHomeHtml = (input: RenderBlogHomeInput): string => {
   const postsHtml = input.posts.length
     ? input.posts
         .map((post) => {
-          const publishedAt = post.publishedAt
-            ? new Date(post.publishedAt).toISOString().slice(0, 10)
-            : '';
+          const publishedAt = formatDate(post.publishedAt);
           return `<article>
   <h2><a href="/${escapeHtml(post.slug)}">${escapeHtml(post.title)}</a></h2>
   ${publishedAt ? `<p class="meta">${escapeHtml(publishedAt)}</p>` : ''}
@@ -104,9 +131,7 @@ export const renderBlogHomeHtml = (input: RenderBlogHomeInput): string => {
 };
 
 export const renderPostHtml = (input: RenderPostInput): string => {
-  const publishedAt = input.post.publishedAt
-    ? new Date(input.post.publishedAt).toISOString().slice(0, 10)
-    : null;
+  const publishedAt = formatDate(input.post.publishedAt);
   const body = `<header>
   <h1><a href="/">${escapeHtml(input.blogTitle)}</a></h1>
   ${input.blogDescription ? `<p>${escapeHtml(input.blogDescription)}</p>` : ''}
@@ -126,4 +151,68 @@ export const renderPostHtml = (input: RenderPostInput): string => {
     input.customCss,
     input.blogDescription ?? null,
   );
+};
+
+export const renderDiscoverHtml = (input: RenderDiscoverInput): string => {
+  const postsHtml = input.posts.length
+    ? input.posts
+        .map((post) => {
+          const publishedAt = formatDate(post.publishedAt);
+          const host = `${post.blog.username}.${input.appDomain}`;
+          return `<article>
+  <h2><a href="https://${escapeHtml(host)}/${escapeHtml(post.slug)}">${escapeHtml(post.title)}</a></h2>
+  <p class="meta">
+    from <a href="https://${escapeHtml(host)}">${escapeHtml(post.blog.title)}</a>
+    (${escapeHtml(host)})
+    ${publishedAt ? `· ${escapeHtml(publishedAt)}` : ''}
+  </p>
+</article>`;
+        })
+        .join('\n')
+    : '<p>No public posts yet.</p>';
+
+  const body = `<header>
+  <h1>Grizzly</h1>
+  <p>Simple multi-tenant blogs, inspired by Bear Blog.</p>
+  <nav><a href="/feed.xml">Discover RSS</a></nav>
+</header>
+<main>
+  <h2>Discover recent posts</h2>
+  ${postsHtml}
+</main>`;
+
+  return pageShell('Grizzly · Discover', body, null, 'Discover public posts');
+};
+
+export const renderDiscoverFeedXml = (
+  input: RenderDiscoverFeedXmlInput,
+): string => {
+  const channelTitle = 'Grizzly Discover';
+  const channelDescription = 'Latest posts across public Grizzly blogs';
+
+  const itemsXml = input.items
+    .map((item) => {
+      const host = `${item.blog.username}.${input.appDomain}`;
+      const postUrl = `https://${host}/${item.slug}`;
+      const pubDate = (item.publishedAt ?? item.updatedAt).toUTCString();
+      const description = `From ${item.blog.title}: ${item.title}`;
+      return `<item>
+  <title>${escapeHtml(item.title)}</title>
+  <link>${escapeHtml(postUrl)}</link>
+  <guid>${escapeHtml(postUrl)}</guid>
+  <pubDate>${escapeHtml(pubDate)}</pubDate>
+  <description>${escapeHtml(description)}</description>
+</item>`;
+    })
+    .join('\n');
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel>
+  <title>${escapeHtml(channelTitle)}</title>
+  <link>${escapeHtml(input.siteBaseUrl)}</link>
+  <description>${escapeHtml(channelDescription)}</description>
+  ${itemsXml}
+</channel>
+</rss>`;
 };

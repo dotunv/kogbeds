@@ -10,6 +10,7 @@ This repository currently implements:
 - Input validation + config validation
 - Posts module with owner-scoped CRUD, publish/unpublish, and Markdown -> HTML rendering
 - Public blog rendering with subdomain host routing and RSS feed
+- Root-host discover page + RSS feed for recent public posts
 
 ## Current architecture
 
@@ -22,6 +23,7 @@ src/
 ├── modules/
 │   ├── auth/
 │   ├── blogs/
+│   ├── discover/
 │   ├── posts/
 │   ├── public/
 │   └── users/
@@ -64,6 +66,11 @@ For a host matching `<username>.<APP_DOMAIN>`, middleware routes requests to:
 - `GET /:slug` -> public post page
 - `GET /feed.xml` -> RSS feed
 
+### Discover routes (root host)
+For the root host (`APP_DOMAIN` or `www.APP_DOMAIN`):
+- `GET /` -> discover page (recent public posts)
+- `GET /feed.xml` -> discover RSS feed
+
 ## Local setup
 
 1. Install dependencies:
@@ -99,7 +106,7 @@ npm run prisma:migrate:deploy
 
 ## Suggested next steps (MVP path)
 
-1. Main site discover feed on root host
-2. Dashboard settings (title, description, custom CSS editor)
-3. Public SEO polish (meta tags, sitemap, canonical URLs)
+1. Dashboard settings (title, description, custom CSS editor)
+2. Public SEO polish (meta tags, sitemap, canonical URLs)
+3. Custom domains support
 4. Optional caching for public pages/feed

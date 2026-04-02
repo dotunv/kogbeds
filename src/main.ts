@@ -74,6 +74,14 @@ async function bootstrap() {
       }
     }
 
+    if (isRootHost && !req.url.startsWith('/discover')) {
+      if (req.url === '/' || req.url === '') {
+        request.url = '/discover';
+      } else if (req.url === '/feed.xml') {
+        request.url = '/discover/feed.xml';
+      }
+    }
+
     next();
   });
 
