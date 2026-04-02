@@ -1,13 +1,14 @@
 # Grizzly (NestJS Bear-style blogging platform)
 
 Grizzly is a minimalist, multi-tenant blogging platform inspired by Bear Blog.
-This repository currently implements the **foundation slice**:
+This repository currently implements:
 
 - NestJS modular architecture
 - Prisma + PostgreSQL schema and migration
 - JWT authentication (register/login/me)
 - Automatic blog creation for every new user
 - Input validation + config validation
+- Posts module with owner-scoped CRUD, publish/unpublish, and Markdown -> HTML rendering
 
 ## Current architecture
 
@@ -20,6 +21,7 @@ src/
 ├── modules/
 │   ├── auth/
 │   ├── blogs/
+│   ├── posts/
 │   └── users/
 └── prisma/
 ```
@@ -28,7 +30,7 @@ src/
 
 - `User` (email, username, passwordHash)
 - `Blog` (one-to-one with User)
-- `Post` (attached to Blog; schema ready for upcoming posts module)
+- `Post` (attached to Blog, includes Markdown + rendered HTML + publish state)
 
 See: `prisma/schema.prisma`
 
@@ -44,6 +46,15 @@ See: `prisma/schema.prisma`
 
 ### Users
 - `GET /users/me` (JWT required)
+
+### Posts (JWT required)
+- `POST /posts`
+- `GET /posts?status=all|draft|published`
+- `GET /posts/:id`
+- `PATCH /posts/:id`
+- `DELETE /posts/:id`
+- `PATCH /posts/:id/publish`
+- `PATCH /posts/:id/unpublish`
 
 ## Local setup
 
@@ -79,7 +90,7 @@ npm run prisma:migrate:deploy
 
 ## Suggested next steps (MVP path)
 
-1. Posts module CRUD (Markdown content + slugs)
-2. Public rendering module (`GET /`, `GET /:slug`, `GET /feed.xml`)
-3. Subdomain middleware (`username.yourdomain.com` -> blog lookup)
-4. Dashboard settings (title, description, custom CSS)
+1. Public rendering module (`GET /`, `GET /:slug`, `GET /feed.xml`)
+2. Subdomain middleware (`username.yourdomain.com` -> blog lookup)
+3. Dashboard settings (title, description, custom CSS)
+4. Main site discover feed
