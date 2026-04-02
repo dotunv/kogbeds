@@ -6,6 +6,7 @@ const envSchema = z
       .enum(['development', 'test', 'production'])
       .default('development'),
     PORT: z.coerce.number().int().positive().default(3000),
+    APP_DOMAIN: z.string().min(1).default('localhost'),
     DATABASE_URL: z.string().min(1).optional(),
     JWT_SECRET: z.string().min(16).optional(),
     JWT_EXPIRES_IN: z.string().default('1d'),
