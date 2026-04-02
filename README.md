@@ -9,6 +9,7 @@ This repository currently implements:
 - Automatic blog creation for every new user
 - Input validation + config validation
 - Posts module with owner-scoped CRUD, publish/unpublish, and Markdown -> HTML rendering
+- Public blog rendering with subdomain host routing and RSS feed
 
 ## Current architecture
 
@@ -22,6 +23,7 @@ src/
 │   ├── auth/
 │   ├── blogs/
 │   ├── posts/
+│   ├── public/
 │   └── users/
 └── prisma/
 ```
@@ -56,6 +58,12 @@ See: `prisma/schema.prisma`
 - `PATCH /posts/:id/publish`
 - `PATCH /posts/:id/unpublish`
 
+### Public blog routes (subdomain host)
+For a host matching `<username>.<APP_DOMAIN>`, middleware routes requests to:
+- `GET /` -> blog homepage (published posts)
+- `GET /:slug` -> public post page
+- `GET /feed.xml` -> RSS feed
+
 ## Local setup
 
 1. Install dependencies:
@@ -66,12 +74,13 @@ See: `prisma/schema.prisma`
    ```bash
    cp .env.example .env
    ```
-3. Ensure PostgreSQL is running and `DATABASE_URL` is valid.
-4. Apply migrations:
+3. Set `APP_DOMAIN` in `.env` for your local/production domain (e.g. `localhost` or `yourdomain.com`).
+4. Ensure PostgreSQL is running and `DATABASE_URL` is valid.
+5. Apply migrations:
    ```bash
    npm run prisma:migrate:deploy
    ```
-5. Start app:
+6. Start app:
    ```bash
    npm run start:dev
    ```
@@ -90,7 +99,7 @@ npm run prisma:migrate:deploy
 
 ## Suggested next steps (MVP path)
 
-1. Public rendering module (`GET /`, `GET /:slug`, `GET /feed.xml`)
-2. Subdomain middleware (`username.yourdomain.com` -> blog lookup)
-3. Dashboard settings (title, description, custom CSS)
-4. Main site discover feed
+1. Main site discover feed on root host
+2. Dashboard settings (title, description, custom CSS editor)
+3. Public SEO polish (meta tags, sitemap, canonical URLs)
+4. Optional caching for public pages/feed

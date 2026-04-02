@@ -8,6 +8,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { BlogsModule } from './modules/blogs/blogs.module';
 import { PostsModule } from './modules/posts/posts.module';
+import { PublicModule } from './modules/public/public.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { PostsModule } from './modules/posts/posts.module';
     UsersModule,
     BlogsModule,
     PostsModule,
+    PublicModule,
   ],
   controllers: [AppController],
   providers: [AppService],
