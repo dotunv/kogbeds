@@ -12,4 +12,6 @@ export type PublicRequestContext = {
   blogUsername: string | null;
   blog: PublicBlogContext | null;
   scheme: 'http' | 'https';
+  /** Plain-text DNS/HTTP challenge for custom domain verification */
+  domainChallengeToken?: string | null;
 };

@@ -35,6 +35,26 @@ describe('AppController (e2e)', () => {
       .expect({ status: 'ok', service: 'grizzly' });
   });
 
+  it('/health/ready (GET)', () => {
+    return request(app.getHttpServer())
+      .get('/health/ready')
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toMatchObject({
+          status: 'ok',
+          service: 'grizzly',
+          database: 'up',
+        });
+      });
+  });
+
+  it('POST /auth/register rejects empty body (validation)', () => {
+    return request(app.getHttpServer())
+      .post('/auth/register')
+      .send({})
+      .expect(400);
+  });
+
   afterEach(async () => {
     await app.close();
   });

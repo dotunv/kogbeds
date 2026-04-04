@@ -7,9 +7,22 @@ const envSchema = z
       .default('development'),
     PORT: z.coerce.number().int().positive().default(3000),
     APP_DOMAIN: z.string().min(1).default('localhost'),
+    APP_PUBLIC_BASE_URL: z.string().url().optional(),
     DATABASE_URL: z.string().min(1).optional(),
     JWT_SECRET: z.string().min(16).optional(),
     JWT_EXPIRES_IN: z.string().default('1d'),
+    REDIS_URL: z.string().optional(),
+    REDIS_HOST: z.string().optional(),
+    REDIS_PORT: z.coerce.number().int().positive().optional(),
+    REDIS_PASSWORD: z.string().optional(),
+    UPLOAD_DIR: z.string().optional(),
+    CORS_ORIGIN: z.string().optional(),
+    SMTP_HOST: z.string().optional(),
+    SMTP_PORT: z.coerce.number().int().positive().optional(),
+    SMTP_SECURE: z.coerce.boolean().optional(),
+    SMTP_USER: z.string().optional(),
+    SMTP_PASS: z.string().optional(),
+    SMTP_FROM: z.string().optional(),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'test') {

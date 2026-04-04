@@ -9,6 +9,13 @@ describe('AppController', () => {
       status: 'ok',
       service: 'grizzly',
     })),
+    getReadiness: jest.fn(() =>
+      Promise.resolve({
+        status: 'ok',
+        service: 'grizzly',
+        database: 'up' as const,
+      }),
+    ),
   };
 
   beforeEach(async () => {

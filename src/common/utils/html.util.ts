@@ -10,6 +10,10 @@ export const escapeHtml = (value: string): string => {
   return value.replace(/[&<>"']/g, (char) => ENTITY_MAP[char] ?? char);
 };
 
+const jsonLdSafe = (value: unknown): string => {
+  return JSON.stringify(value).replace(/</g, '\\u003c');
+};
+
 type BlogHomePostItem = {
   title: string;
   slug: string;
@@ -20,6 +24,7 @@ type RenderBlogHomeInput = {
   blogTitle: string;
   blogDescription: string | null;
   customCss: string | null;
+  canonicalUrl: string;
   posts: BlogHomePostItem[];
 };
 
@@ -27,12 +32,16 @@ type RenderPostInput = {
   blogTitle: string;
   blogDescription: string | null;
   customCss: string | null;
+  canonicalUrl: string;
   post: {
     title: string;
     contentHtml: string | null;
-    contentMarkdown: string;
+    contentMarkdown: string | null;
     publishedAt: Date | null;
+    updatedAt: Date;
+    excerpt: string | null;
   };
+  comments?: { authorName: string | null; body: string; createdAt: Date }[];
 };
 
 type DiscoverPostItem = {
@@ -49,12 +58,19 @@ type DiscoverPostItem = {
 type RenderDiscoverInput = {
   appDomain: string;
   posts: DiscoverPostItem[];
+  canonicalUrl: string;
 };
 
 type RenderDiscoverFeedXmlInput = {
   siteBaseUrl: string;
   appDomain: string;
   items: DiscoverPostItem[];
+};
+
+export type PageShellSeo = {
+  canonicalUrl: string;
+  metaDescription?: string | null;
+  jsonLd?: Record<string, unknown> | null;
 };
 
 const formatDate = (value: Date | null): string | null => {
@@ -64,15 +80,27 @@ const formatDate = (value: Date | null): string | null => {
   return new Date(value).toISOString().slice(0, 10);
 };
 
+const formatIso = (value: Date): string => {
+  return new Date(value).toISOString();
+};
+
 const pageShell = (
   title: string,
   bodyContent: string,
   customCss: string | null,
-  description?: string | null,
+  description: string | null | undefined,
+  seo: PageShellSeo,
 ): string => {
   const safeTitle = escapeHtml(title);
-  const safeDescription = description ? escapeHtml(description) : '';
+  const metaDesc =
+    (seo.metaDescription ?? description)
+      ? escapeHtml((seo.metaDescription ?? description ?? '').slice(0, 320))
+      : '';
   const cssBlock = customCss ? `<style>${customCss}</style>` : '';
+  const canonical = escapeHtml(seo.canonicalUrl);
+  const jsonBlock = seo.jsonLd
+    ? `<script type="application/ld+json">${jsonLdSafe(seo.jsonLd)}</script>`
+    : '';
 
   return `<!doctype html>
 <html lang="en">
@@ -80,7 +108,12 @@ const pageShell = (
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${safeTitle}</title>
-  ${safeDescription ? `<meta name="description" content="${safeDescription}" />` : ''}
+  ${metaDesc ? `<meta name="description" content="${metaDesc}" />` : ''}
+  <link rel="canonical" href="${canonical}" />
+  <meta property="og:title" content="${safeTitle}" />
+  <meta property="og:url" content="${canonical}" />
+  <meta property="og:type" content="website" />
+  ${metaDesc ? `<meta property="og:description" content="${metaDesc}" />` : ''}
   <style>
     :root { color-scheme: light dark; }
     body { margin: 2rem auto; max-width: 760px; padding: 0 1rem; font-family: system-ui, sans-serif; line-height: 1.6; }
@@ -91,8 +124,11 @@ const pageShell = (
     .meta { opacity: 0.72; font-size: 0.92rem; }
     pre { overflow-x: auto; }
     img { max-width: 100%; height: auto; }
+    .embed { position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; max-width: 100%; margin: 1rem 0; }
+    .embed iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; }
   </style>
   ${cssBlock}
+  ${jsonBlock}
 </head>
 <body>
 ${bodyContent}
@@ -116,22 +152,50 @@ export const renderBlogHomeHtml = (input: RenderBlogHomeInput): string => {
   const body = `<header>
   <h1>${escapeHtml(input.blogTitle)}</h1>
   ${input.blogDescription ? `<p>${escapeHtml(input.blogDescription)}</p>` : ''}
-  <nav><a href="/feed.xml">RSS</a></nav>
+  <nav><a href="/feed.xml">RSS</a> · <a href="/sitemap.xml">Sitemap</a></nav>
 </header>
 <main>
   ${postsHtml}
 </main>`;
+
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Blog',
+    name: input.blogTitle,
+    description: input.blogDescription ?? undefined,
+    url: input.canonicalUrl,
+  };
 
   return pageShell(
     input.blogTitle,
     body,
     input.customCss,
     input.blogDescription ?? null,
+    {
+      canonicalUrl: input.canonicalUrl,
+      metaDescription: input.blogDescription,
+      jsonLd,
+    },
   );
 };
 
 export const renderPostHtml = (input: RenderPostInput): string => {
   const publishedAt = formatDate(input.post.publishedAt);
+  const commentsHtml =
+    input.comments && input.comments.length > 0
+      ? `<section class="comments">
+  <h3>Comments</h3>
+  ${input.comments
+    .map(
+      (c) => `<article class="comment">
+    <p class="meta">${escapeHtml(c.authorName ?? 'Anonymous')} · ${escapeHtml(formatIso(c.createdAt))}</p>
+    <p>${escapeHtml(c.body)}</p>
+  </article>`,
+    )
+    .join('\n')}
+</section>`
+      : '';
+
   const body = `<header>
   <h1><a href="/">${escapeHtml(input.blogTitle)}</a></h1>
   ${input.blogDescription ? `<p>${escapeHtml(input.blogDescription)}</p>` : ''}
@@ -141,15 +205,34 @@ export const renderPostHtml = (input: RenderPostInput): string => {
   <article>
     <h2>${escapeHtml(input.post.title)}</h2>
     ${publishedAt ? `<p class="meta">${escapeHtml(publishedAt)}</p>` : ''}
-    <div>${input.post.contentHtml ?? escapeHtml(input.post.contentMarkdown)}</div>
+    <div>${input.post.contentHtml ?? escapeHtml(input.post.contentMarkdown ?? '')}</div>
   </article>
+  ${commentsHtml}
 </main>`;
+
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BlogPosting',
+    headline: input.post.title,
+    datePublished: input.post.publishedAt
+      ? formatIso(input.post.publishedAt)
+      : undefined,
+    dateModified: formatIso(input.post.updatedAt),
+    description: input.post.excerpt ?? undefined,
+    url: input.canonicalUrl,
+    mainEntityOfPage: input.canonicalUrl,
+  };
 
   return pageShell(
     `${input.post.title} - ${input.blogTitle}`,
     body,
     input.customCss,
-    input.blogDescription ?? null,
+    input.post.excerpt ?? input.blogDescription,
+    {
+      canonicalUrl: input.canonicalUrl,
+      metaDescription: input.post.excerpt ?? input.blogDescription,
+      jsonLd,
+    },
   );
 };
 
@@ -174,14 +257,23 @@ export const renderDiscoverHtml = (input: RenderDiscoverInput): string => {
   const body = `<header>
   <h1>Grizzly</h1>
   <p>Simple multi-tenant blogs, inspired by Bear Blog.</p>
-  <nav><a href="/feed.xml">Discover RSS</a></nav>
+  <nav><a href="/feed.xml">Discover RSS</a> · <a href="/sitemap.xml">Sitemap</a></nav>
 </header>
 <main>
   <h2>Discover recent posts</h2>
   ${postsHtml}
 </main>`;
 
-  return pageShell('Grizzly · Discover', body, null, 'Discover public posts');
+  return pageShell('Grizzly · Discover', body, null, 'Discover public posts', {
+    canonicalUrl: input.canonicalUrl,
+    metaDescription: 'Discover public posts across Grizzly blogs',
+    jsonLd: {
+      '@context': 'https://schema.org',
+      '@type': 'WebSite',
+      name: 'Grizzly Discover',
+      url: input.canonicalUrl,
+    },
+  });
 };
 
 export const renderDiscoverFeedXml = (
@@ -215,4 +307,33 @@ export const renderDiscoverFeedXml = (
   ${itemsXml}
 </channel>
 </rss>`;
+};
+
+export const renderUrlSetXml = (
+  urls: { loc: string; lastmod?: string }[],
+): string => {
+  const items = urls
+    .map((u) => {
+      const loc = escapeHtml(u.loc);
+      const lm = u.lastmod
+        ? `\n  <lastmod>${escapeHtml(u.lastmod)}</lastmod>`
+        : '';
+      return `<url>
+  <loc>${loc}</loc>${lm}
+</url>`;
+    })
+    .join('\n');
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${items}
+</urlset>`;
+};
+
+export const renderRobotsTxt = (input: {
+  siteBaseUrl: string;
+  sitemapUrl: string;
+}): string => {
+  const lines = ['User-agent: *', 'Disallow:', `Sitemap: ${input.sitemapUrl}`];
+  return `${lines.join('\n')}\n`;
 };

@@ -9,17 +9,26 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CreatePostDto } from './dto/create-post.dto';
 import { ListPostsQueryDto } from './dto/list-posts.query.dto';
+import { PreviewPostDto } from './dto/preview-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { PostsService } from './posts.service';
 
+@ApiTags('posts')
+@ApiBearerAuth()
 @Controller('posts')
 @UseGuards(JwtAuthGuard)
 export class PostsController {
   constructor(private readonly postsService: PostsService) {}
+
+  @Post('preview')
+  preview(@CurrentUser('id') userId: string, @Body() dto: PreviewPostDto) {
+    return this.postsService.previewForOwner(userId, dto);
+  }
 
   @Post()
   create(@CurrentUser('id') userId: string, @Body() dto: CreatePostDto) {
@@ -29,6 +38,11 @@ export class PostsController {
   @Get()
   list(@CurrentUser('id') userId: string, @Query() query: ListPostsQueryDto) {
     return this.postsService.listForOwner(userId, query);
+  }
+
+  @Get(':id/revisions')
+  listRevisions(@CurrentUser('id') userId: string, @Param('id') id: string) {
+    return this.postsService.listRevisionsForOwner(userId, id);
   }
 
   @Get(':id')

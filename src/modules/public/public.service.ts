@@ -21,7 +21,10 @@ type PublicPostDetail = Pick<
   | 'createdAt'
   | 'updatedAt'
   | 'featuredImageUrl'
->;
+> & {
+  excerpt: string | null;
+  searchableText: string | null;
+};
 
 export type PublicBlogView = {
   id: string;
@@ -161,6 +164,8 @@ export class PublicService {
         slug: true,
         contentHtml: true,
         contentMarkdown: true,
+        excerpt: true,
+        searchableText: true,
         publishedAt: true,
         createdAt: true,
         updatedAt: true,
@@ -188,6 +193,8 @@ export class PublicService {
         publishedAt: true,
         updatedAt: true,
         contentMarkdown: true,
+        excerpt: true,
+        searchableText: true,
       },
       orderBy: [{ publishedAt: 'desc' }, { createdAt: 'desc' }],
       take: 50,
@@ -198,7 +205,11 @@ export class PublicService {
       slug: post.slug,
       publishedAt: post.publishedAt,
       updatedAt: post.updatedAt,
-      description: post.contentMarkdown.slice(0, 280),
+      description:
+        post.excerpt ??
+        post.searchableText?.slice(0, 280) ??
+        post.contentMarkdown?.slice(0, 280) ??
+        '',
     }));
 
     const channelTitle = escapeHtml(blog.title);
@@ -230,5 +241,63 @@ export class PublicService {
   ${itemsXml}
 </channel>
 </rss>`;
+  }
+
+  async getBlogByCustomDomain(hostname: string): Promise<{
+    blog: PublicBlogView;
+    domainChallengeToken: string | null;
+  } | null> {
+    const host = hostname.trim().toLowerCase();
+    const row = await this.prisma.blog.findFirst({
+      where: {
+        isPublic: true,
+        customDomain: host,
+      },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        customCss: true,
+        customDomainVerifyToken: true,
+        owner: {
+          select: {
+            username: true,
+          },
+        },
+      },
+    });
+
+    if (!row) {
+      return null;
+    }
+
+    return {
+      blog: {
+        id: row.id,
+        title: row.title,
+        description: row.description,
+        customCss: row.customCss,
+        isPublic: true,
+        username: row.owner.username,
+      },
+      domainChallengeToken: row.customDomainVerifyToken,
+    };
+  }
+
+  async listPublishedSlugsForSitemap(
+    blogId: string,
+  ): Promise<{ slug: string; updatedAt: Date }[]> {
+    return this.prisma.post.findMany({
+      where: {
+        blogId,
+        isPublished: true,
+      },
+      select: {
+        slug: true,
+        updatedAt: true,
+      },
+      orderBy: [{ publishedAt: 'desc' }],
+      take: 2000,
+    });
   }
 }
