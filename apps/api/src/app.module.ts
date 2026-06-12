@@ -35,23 +35,29 @@ import { PrismaModule } from './prisma/prisma.module';
         if (redisUrl) {
           try {
             const u = new URL(redisUrl);
+            const useTls =
+              u.protocol === 'rediss:' ||
+              config.get<string>('REDIS_TLS') === 'true';
             return {
               connection: {
                 host: u.hostname,
-                port: Number(u.port || 6379),
+                port: Number(u.port || (useTls ? 6380 : 6379)),
                 username: u.username || undefined,
                 password: u.password || undefined,
+                tls: useTls ? {} : undefined,
               },
             };
           } catch {
             /* fall through */
           }
         }
+        const useTls = config.get<string>('REDIS_TLS') === 'true';
         return {
           connection: {
             host: config.get<string>('REDIS_HOST') ?? '127.0.0.1',
-            port: config.get<number>('REDIS_PORT') ?? 6379,
+            port: config.get<number>('REDIS_PORT') ?? (useTls ? 6380 : 6379),
             password: config.get<string>('REDIS_PASSWORD') || undefined,
+            tls: useTls ? {} : undefined,
           },
         };
       },

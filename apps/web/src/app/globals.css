@@ -1,0 +1,174 @@
+@import "tailwindcss";
+
+@import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ─── Design Tokens ──────────────────────────────────────────────────────────── */
+:root {
+  --color-canvas:        #F7F7F5;
+  --color-surface:       #FFFFFF;
+  --color-ink:           #1A1A18;
+  --color-muted:         #6B6B68;
+  --color-faint:         #A8A8A5;
+  --color-border:        #E2E2DF;
+  --color-border-strong: #C8C8C5;
+
+  --color-accent:       #2D6BE4;
+  --color-accent-light: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  --color-accent-text:  #FFFFFF;
+
+  --color-success: #1A7A4A;
+  --color-warning: #92600A;
+  --color-danger:  #C0392B;
+
+  --font-reading: 'Lora', Georgia, serif;
+  --font-ui:      'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-code:    'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+  --space-10: 128px;
+
+  --max-prose:     68ch;
+  --max-content:   720px;
+  --max-dashboard: 1200px;
+  --sidebar-width: 240px;
+
+  --radius:    6px;
+  --radius-sm: 3px;
+  --radius-lg: 10px;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.12);
+}
+
+[data-theme="dark"] {
+  --color-canvas:        #141412;
+  --color-surface:       #1E1E1B;
+  --color-ink:           #EEEEE9;
+  --color-muted:         #8A8A86;
+  --color-faint:         #555552;
+  --color-border:        #2E2E2B;
+  --color-border-strong: #444441;
+}
+
+/* ─── Base ───────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  font-family: var(--font-ui);
+  color: var(--color-ink);
+  background: var(--color-canvas);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  transition: background-color 200ms, color 200ms;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--color-accent-light);
+}
+
+/* ─── Prose (reading content) ───────────────────────────────────────────────── */
+.prose {
+  font-family: var(--font-reading);
+  font-size: 18px;
+  line-height: 1.8;
+  color: var(--color-ink);
+  max-width: var(--max-prose);
+}
+
+.prose h1 { font-size: 30px; font-weight: 600; line-height: 1.2; margin-top: 48px; margin-bottom: 16px; }
+.prose h2 { font-size: 24px; font-weight: 600; line-height: 1.25; margin-top: 40px; margin-bottom: 14px; }
+.prose h3 { font-size: 20px; font-weight: 600; line-height: 1.3; margin-top: 32px; margin-bottom: 12px; }
+.prose p  { margin-bottom: 24px; }
+
+.prose blockquote {
+  border-left: 3px solid var(--color-accent);
+  padding-left: 20px;
+  color: var(--color-muted);
+  font-style: italic;
+  margin: 24px 0;
+}
+
+.prose code:not(pre code) {
+  font-family: var(--font-code);
+  font-size: 15px;
+  background: var(--color-canvas);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+}
+
+.prose pre {
+  font-family: var(--font-code);
+  font-size: 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  overflow-x: auto;
+  line-height: 1.6;
+  margin: 24px 0;
+}
+
+[data-theme="dark"] .prose pre { background: #1E1E1B; }
+
+.prose img {
+  max-width: 100%;
+  height: auto;
+  margin: 32px auto;
+  display: block;
+  border-radius: var(--radius);
+}
+
+.prose .img-caption {
+  font-size: 12px;
+  color: var(--color-muted);
+  text-align: center;
+  margin-top: -20px;
+  margin-bottom: 24px;
+}
+
+.prose hr {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: 48px 0;
+}
+
+.prose ul, .prose ol { padding-left: 24px; margin-bottom: 24px; }
+.prose li { margin-bottom: 8px; }
+
+.prose .youtube-embed {
+  position: relative;
+  padding-bottom: 56.25%;
+  height: 0;
+  overflow: hidden;
+  border-radius: var(--radius);
+  margin: 32px 0;
+}
+.prose .youtube-embed iframe {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

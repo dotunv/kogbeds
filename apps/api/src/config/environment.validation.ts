@@ -15,6 +15,7 @@ const envSchema = z
     REDIS_HOST: z.string().optional(),
     REDIS_PORT: z.coerce.number().int().positive().optional(),
     REDIS_PASSWORD: z.string().optional(),
+    REDIS_TLS: z.enum(['true', 'false']).optional(),
     UPLOAD_DIR: z.string().optional(),
     CORS_ORIGIN: z.string().optional(),
     SMTP_HOST: z.string().optional(),
