@@ -10,7 +10,7 @@ const token = () => localStorage.getItem('access_token') ?? '';
 
 type Filter = 'PENDING' | 'APPROVED' | 'SPAM';
 
-export function CommentsPage() {
+export function CommentsPage({ pubSlug }: { pubSlug?: string }) {
   const [comments, setComments] = useState<(Comment & { postTitle?: string })[]>([]);
   const [filter, setFilter]     = useState<Filter>('PENDING');
   const [loading, setLoading]   = useState(true);

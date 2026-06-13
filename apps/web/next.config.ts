@@ -1,6 +1,9 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  turbopack: {
+    root: require('path').resolve(__dirname, '../../'),
+  },
   images: {
     remotePatterns: [
       { protocol: 'http',  hostname: 'localhost' },
@@ -8,7 +11,6 @@ const nextConfig: NextConfig = {
       { protocol: 'https', hostname: 'grizzly.app' },
     ],
   },
-  // Allow the frontend to run on port 3001 while the API runs on 3000
 };
 
 export default nextConfig;

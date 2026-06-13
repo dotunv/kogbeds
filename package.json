@@ -11,10 +11,10 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "test": "turbo run test",
-    "dev:api": "npm run dev --workspace=apps/api",
-    "dev:web": "npm run dev --workspace=apps/web",
-    "build:api": "npm run build --workspace=apps/api",
-    "build:web": "npm run build --workspace=apps/web"
+    "dev:api": "turbo run dev --filter=@grizzly/api",
+    "dev:web": "turbo run dev --filter=@grizzly/web",
+    "build:api": "turbo run build --filter=@grizzly/api",
+    "build:web": "turbo run build --filter=@grizzly/web"
   },
   "devDependencies": {
     "turbo": "^2.9.18"

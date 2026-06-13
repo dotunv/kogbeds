@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000';
 
-type Props = { blogId: string; username: string; accentColor: string };
+type Props = { blogId: string; username: string; accentColor: string; inline?: boolean };
 
 export function SubscribeBar({ username, accentColor }: Props) {
   const [email, setEmail]     = useState('');

@@ -1,40 +1,69 @@
-export type Blog = {
+export type PublicationType = 'BLOG' | 'NEWSLETTER' | 'BOTH';
+
+export type Publication = {
   id: string;
+  userId: string;
   slug: string;
   title: string;
   description: string;
+  type: PublicationType;
   accentColor: string;
   coverImageUrl: string | null;
   faviconUrl: string | null;
   footerText: string;
   customDomain: string | null;
   domainVerified: boolean;
+  domainTxtRecord: string | null;
   isPublic: boolean;
+  monthlyPriceUsd: string | null;
+  yearlyPriceUsd: string | null;
+  deletedAt: string | null;
   createdAt: string;
+  updatedAt: string;
+  _count?: {
+    posts: number;
+    subscribers: number;
+  };
 };
+
+/** @deprecated Use Publication instead */
+export type Blog = Publication;
+
+export type PostStatus = 'DRAFT' | 'SCHEDULED' | 'PUBLISHED';
+export type PostFormat = 'MARKDOWN' | 'BLOCKS';
 
 export type Post = {
   id: string;
-  blogId: string;
+  publicationId: string;
+  /** @deprecated Use publicationId */
+  blogId?: string;
   title: string;
   slug: string;
   excerpt: string;
-  format: 'MARKDOWN' | 'BLOCKS';
-  markdownContent?: string | null;
-  blocks?: Block[] | null;
+  format: PostFormat;
+  markdownContent: string | null;
+  /** @deprecated Use markdownContent */
+  contentMarkdown?: string | null;
+  blocks: Block[] | null;
+  contentHtml?: string | null;
   metaTitle: string;
   metaDescription: string;
   ogImageUrl: string | null;
   canonicalUrl: string | null;
-  status: 'DRAFT' | 'SCHEDULED' | 'PUBLISHED';
+  status: PostStatus;
+  /** @deprecated Use status === 'PUBLISHED' */
+  isPublished?: boolean;
   publishedAt: string | null;
   scheduledAt: string | null;
   isPaywalled: boolean;
+  deletedAt: string | null;
   tags: Tag[];
   createdAt: string;
   updatedAt: string;
-  _count?: { comments: number };
-  viewCount?: number;
+  _count?: {
+    comments: number;
+    views?: number;
+  };
 };
 
 export type Tag = {
@@ -62,11 +91,14 @@ export type Comment = {
   body: string;
   status: 'PENDING' | 'APPROVED' | 'SPAM' | 'REJECTED';
   createdAt: string;
+  updatedAt: string;
 };
 
 export type Subscriber = {
   id: string;
-  blogId: string;
+  publicationId: string;
+  /** @deprecated Use publicationId */
+  blogId?: string;
   email: string;
   confirmed: boolean;
   confirmedAt: string | null;
@@ -91,4 +123,36 @@ export type Pagination = {
 export type AnalyticsDayView = {
   date: string;
   views: number;
+};
+
+export type EbookStatus = 'DRAFT' | 'PUBLISHED';
+
+export type Ebook = {
+  id: string;
+  userId: string;
+  title: string;
+  description: string;
+  coverImageUrl: string | null;
+  priceUsd: string | null;
+  isFreeForSubscribers: boolean;
+  status: EbookStatus;
+  deletedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  chapters?: EbookChapter[];
+  _count?: {
+    chapters: number;
+  };
+};
+
+export type EbookChapter = {
+  id: string;
+  ebookId: string;
+  title: string;
+  order: number;
+  format: PostFormat;
+  markdownContent: string | null;
+  blocks: Block[] | null;
+  createdAt: string;
+  updatedAt: string;
 };

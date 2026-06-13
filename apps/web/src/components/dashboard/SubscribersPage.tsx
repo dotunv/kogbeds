@@ -11,7 +11,7 @@ const token = () => localStorage.getItem('access_token') ?? '';
 
 type Filter = 'all' | 'confirmed' | 'pending';
 
-export function SubscribersPage() {
+export function SubscribersPage({ pubSlug }: { pubSlug?: string }) {
   const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
   const [filter, setFilter]   = useState<Filter>('all');
   const [loading, setLoading] = useState(true);

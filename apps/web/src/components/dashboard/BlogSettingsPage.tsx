@@ -11,8 +11,6 @@ export function BlogSettingsPage() {
   const [blog, setBlog]           = useState<Blog | null>(null);
   const [title, setTitle]         = useState('');
   const [description, setDescription] = useState('');
-  const [accentColor, setAccentColor] = useState('#2D6BE4');
-  const [footerText, setFooterText] = useState('');
   const [isPublic, setIsPublic]   = useState(true);
   const [saving, setSaving]       = useState(false);
   const [saved, setSaved]         = useState(false);
@@ -33,9 +31,7 @@ export function BlogSettingsPage() {
         const b: Blog = r.data;
         setBlog(b);
         setTitle(b.title);
-        setDescription(b.description);
-        setAccentColor(b.accentColor ?? '#2D6BE4');
-        setFooterText(b.footerText ?? '');
+        setDescription(b.description ?? '');
         setIsPublic(b.isPublic);
         if (b.customDomain) setDomain(b.customDomain);
       });
@@ -46,7 +42,7 @@ export function BlogSettingsPage() {
     await fetch(`${API}/blogs/me`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
-      body: JSON.stringify({ title, description, accentColor, footerText, isPublic }),
+      body: JSON.stringify({ title, description, isPublic }),
     });
     setSaving(false);
     setSaved(true);
@@ -81,7 +77,7 @@ export function BlogSettingsPage() {
   }
 
   async function deleteBlog() {
-    if (!blog || deleteConfirm !== blog.slug) return;
+    if (!blog || deleteConfirm !== blog.title) return;
     await fetch(`${API}/blogs/me`, { method: 'DELETE', headers: { Authorization: `Bearer ${token()}` } });
     localStorage.removeItem('access_token');
     window.location.href = '/';
@@ -99,16 +95,6 @@ export function BlogSettingsPage() {
         </Field>
         <Field label="Description">
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} maxLength={500} rows={3} style={{ ...iSty, height: 'auto', padding: '8px 12px', resize: 'vertical' }} />
-        </Field>
-        <Field label="Accent color">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <input type="color" value={accentColor} onChange={(e) => setAccentColor(e.target.value)} style={{ width: '40px', height: '32px', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', cursor: 'pointer', padding: '2px' }} />
-            <input value={accentColor} onChange={(e) => setAccentColor(e.target.value)} maxLength={7} style={{ ...iSty, width: '110px' }} />
-            <button style={{ height: '32px', padding: '0 14px', background: accentColor, color: '#fff', border: 'none', borderRadius: 'var(--radius)', fontSize: '13px', cursor: 'pointer' }}>Subscribe</button>
-          </div>
-        </Field>
-        <Field label="Footer text">
-          <input value={footerText} onChange={(e) => setFooterText(e.target.value)} maxLength={300} style={iSty} placeholder="Optional" />
         </Field>
       </section>
 
@@ -137,7 +123,7 @@ export function BlogSettingsPage() {
             {verifyResult === 'fail' && <span style={{ fontSize: '13px', color: 'var(--color-danger)' }}>✗ TXT record not found yet. DNS can take up to 24h.</span>}
           </div>
         )}
-        {blog.customDomain && blog.domainVerified && (
+        {blog.customDomain && !!(blog as unknown as { customDomainVerifiedAt?: unknown }).customDomainVerifiedAt && (
           <Button size="sm" variant="danger" onClick={removeDomain} style={{ marginTop: '8px' }}>Remove domain</Button>
         )}
       </section>
@@ -167,10 +153,10 @@ export function BlogSettingsPage() {
 
       <section style={{ marginTop: '16px' }}>
         <h2 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--color-danger)', marginBottom: '12px' }}>Danger zone</h2>
-        <p style={{ fontSize: '13px', color: 'var(--color-muted)', marginBottom: '10px' }}>Type your blog slug to confirm deletion: <strong>{blog.slug}</strong></p>
+        <p style={{ fontSize: '13px', color: 'var(--color-muted)', marginBottom: '10px' }}>Type your blog name to confirm deletion: <strong>{blog.title}</strong></p>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <input value={deleteConfirm} onChange={(e) => setDeleteConfirm(e.target.value)} placeholder={blog.slug} style={{ ...iSty, maxWidth: '200px' }} />
-          <Button variant="danger" disabled={deleteConfirm !== blog.slug} onClick={deleteBlog}>Delete blog</Button>
+          <input value={deleteConfirm} onChange={(e) => setDeleteConfirm(e.target.value)} placeholder={blog.title} style={{ ...iSty, maxWidth: '200px' }} />
+          <Button variant="danger" disabled={deleteConfirm !== blog.title} onClick={deleteBlog}>Delete blog</Button>
         </div>
       </section>
     </div>

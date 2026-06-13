@@ -6,156 +6,299 @@ datasource db {
   provider = "postgresql"
 }
 
-enum NewsletterSubscriberStatus {
-  PENDING
-  ACTIVE
-  UNSUBSCRIBED
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum PublicationType {
+  BLOG
+  NEWSLETTER
+  BOTH
 }
 
-enum CommentModerationStatus {
+enum PostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+}
+
+enum PostFormat {
+  MARKDOWN
+  BLOCKS
+}
+
+enum CommentStatus {
   PENDING
   APPROVED
   SPAM
   REJECTED
 }
 
+enum EbookStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum BlockType {
+  PARAGRAPH
+  HEADING_1
+  HEADING_2
+  HEADING_3
+  BLOCKQUOTE
+  CODE
+  ORDERED_LIST
+  UNORDERED_LIST
+  IMAGE
+  YOUTUBE_EMBED
+  DIVIDER
+}
+
+// ─── User ─────────────────────────────────────────────────────────────────────
+
 model User {
-  id            String         @id @default(cuid())
-  email         String         @unique
-  username      String         @unique
-  passwordHash  String
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  blog          Blog?
-  postRevisions PostRevision[]
+  id           String   @id @default(cuid())
+  email        String   @unique
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  publications Publication[]
+  ebooks       Ebook[]
+
+  @@map("users")
 }
 
-model Blog {
-  id                      String   @id @default(cuid())
-  ownerId                 String   @unique
-  title                   String
-  description             String?
-  customCss               String?
-  isPublic                Boolean  @default(true)
-  customDomain            String?  @unique
-  customDomainVerifyToken String?
-  customDomainVerifiedAt  DateTime?
-  createdAt               DateTime @default(now())
-  updatedAt               DateTime @updatedAt
-  owner                   User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  posts                   Post[]
-  assets                  Asset[]
-  newsletterSubscribers   NewsletterSubscriber[]
-  pageViewRollups         PageViewRollup[]
+// ─── Publication ──────────────────────────────────────────────────────────────
+
+model Publication {
+  id               String          @id @default(cuid())
+  userId           String
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  slug             String          @unique
+  title            String          @default("")
+  description      String          @default("")
+
+  type             PublicationType @default(BOTH)
+
+  accentColor      String          @default("#2D6BE4")
+  coverImageUrl    String?
+  faviconUrl       String?
+  footerText       String          @default("")
+
+  customDomain     String?         @unique
+  domainVerified   Boolean         @default(false)
+  domainTxtRecord  String?
+
+  isPublic         Boolean         @default(true)
+
+  monthlyPriceUsd  Decimal?        @db.Decimal(10, 2)
+  yearlyPriceUsd   Decimal?        @db.Decimal(10, 2)
+
+  deletedAt        DateTime?
+
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  posts            Post[]
+  subscribers      Subscriber[]
+  uploads          Upload[]
+  analytics        AnalyticsDailyRollup[]
+
+  @@map("publications")
 }
 
-model Asset {
-  id        String   @id @default(cuid())
-  blogId    String
-  filename  String
-  mimeType  String
-  sizeBytes Int
-  createdAt DateTime @default(now())
-  blog      Blog     @relation(fields: [blogId], references: [id], onDelete: Cascade)
-
-  @@index([blogId])
-}
+// ─── Post ─────────────────────────────────────────────────────────────────────
 
 model Post {
-  id                 String   @id @default(cuid())
-  blogId             String
-  title              String
-  slug               String
-  contentMarkdown    String?
-  blocks             Json?
-  blockSchemaVersion Int      @default(1)
-  contentHtml        String?
-  excerpt            String?
-  searchableText     String?
-  featuredImageUrl   String?
-  isPublished        Boolean  @default(false)
-  publishedAt        DateTime?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  blog               Blog     @relation(fields: [blogId], references: [id], onDelete: Cascade)
-  comments           Comment[]
-  revisions          PostRevision[]
-  tags               PostTag[]
+  id                   String         @id @default(cuid())
+  publicationId        String
+  publication          Publication    @relation(fields: [publicationId], references: [id], onDelete: Cascade)
 
-  @@unique([blogId, slug])
-  @@index([blogId, isPublished])
+  title                String
+  slug                 String
+  excerpt              String         @default("")
+  format               PostFormat
+  markdownContent      String?
+  blocks               Json?
+
+  metaTitle            String         @default("")
+  metaDescription      String         @default("")
+  ogImageUrl           String?
+  canonicalUrl         String?
+
+  status               PostStatus     @default(DRAFT)
+  publishedAt          DateTime?
+  scheduledAt          DateTime?
+
+  isPaywalled          Boolean        @default(false)
+  paywallPreviewBlocks Int            @default(3)
+
+  deletedAt            DateTime?
+
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  tags                 PostTag[]
+  comments             Comment[]
+  revisions            PostRevision[]
+
+  @@unique([publicationId, slug])
+  @@map("posts")
 }
 
+// ─── Post Revision ────────────────────────────────────────────────────────────
+
+model PostRevision {
+  id               String     @id @default(cuid())
+  postId           String
+  post             Post       @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  title            String
+  markdownContent  String?
+  blocks           Json?
+  format           PostFormat
+  savedAt          DateTime   @default(now())
+  revisionNumber   Int
+
+  @@unique([postId, revisionNumber])
+  @@map("post_revisions")
+}
+
+// ─── Tag ──────────────────────────────────────────────────────────────────────
+
 model Tag {
-  id    String    @id @default(cuid())
-  slug  String    @unique
-  name  String
-  posts PostTag[]
+  id            String    @id @default(cuid())
+  publicationId String
+  name          String
+
+  posts         PostTag[]
+
+  @@unique([publicationId, name])
+  @@map("tags")
 }
 
 model PostTag {
   postId String
   tagId  String
-  post   Post @relation(fields: [postId], references: [id], onDelete: Cascade)
-  tag    Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@id([postId, tagId])
+  @@map("post_tags")
 }
 
-model NewsletterSubscriber {
-  id           String                     @id @default(cuid())
-  blogId       String
-  email        String
-  status       NewsletterSubscriberStatus @default(PENDING)
-  confirmToken String                     @unique
-  unsubToken   String                     @unique
-  createdAt    DateTime                   @default(now())
-  updatedAt    DateTime                   @updatedAt
-  blog         Blog                       @relation(fields: [blogId], references: [id], onDelete: Cascade)
-
-  @@unique([blogId, email])
-  @@index([blogId])
-}
+// ─── Comment ──────────────────────────────────────────────────────────────────
 
 model Comment {
-  id          String                  @id @default(cuid())
+  id          String        @id @default(cuid())
   postId      String
+  post        Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+
   authorName  String?
   authorEmail String?
   body        String
-  status      CommentModerationStatus @default(PENDING)
-  createdAt   DateTime                @default(now())
-  post        Post                    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  status      CommentStatus @default(PENDING)
 
-  @@index([postId, status])
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@map("comments")
 }
 
-model PostRevision {
-  id                 String   @id @default(cuid())
-  postId             String
-  contentMarkdown    String?
-  blocks             Json?
-  blockSchemaVersion Int      @default(1)
-  contentHtml        String?
-  excerpt            String?
-  searchableText     String?
-  createdByUserId    String?
-  createdAt          DateTime @default(now())
-  post               Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
-  createdBy          User?    @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+// ─── Subscriber ───────────────────────────────────────────────────────────────
 
-  @@index([postId, createdAt])
+model Subscriber {
+  id              String      @id @default(cuid())
+  publicationId   String
+  publication     Publication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+
+  email           String
+  confirmed       Boolean     @default(false)
+  confirmToken    String      @unique @default(cuid())
+  unsubToken      String      @unique @default(cuid())
+  confirmedAt     DateTime?
+
+  tier            String      @default("FREE")
+  stripeCustomerId String?
+
+  createdAt       DateTime    @default(now())
+
+  @@unique([publicationId, email])
+  @@map("subscribers")
 }
 
-model PageViewRollup {
-  id     String   @id @default(cuid())
-  blogId String
-  /// Empty string when the view is for the blog home (not a specific post).
-  postId String   @default("")
-  day    DateTime @db.Date
-  views  Int      @default(0)
-  blog   Blog     @relation(fields: [blogId], references: [id], onDelete: Cascade)
+// ─── Analytics ────────────────────────────────────────────────────────────────
 
-  @@unique([blogId, postId, day])
-  @@index([blogId])
+model AnalyticsDailyRollup {
+  id            String      @id @default(cuid())
+  publicationId String
+  publication   Publication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+  postId        String?
+  date          DateTime    @db.Date
+  views         Int         @default(0)
+
+  @@unique([publicationId, postId, date])
+  @@map("analytics_daily_rollup")
+}
+
+// ─── Upload ───────────────────────────────────────────────────────────────────
+
+model Upload {
+  id            String      @id @default(cuid())
+  publicationId String
+  publication   Publication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+  filename      String
+  originalName  String
+  mimeType      String
+  sizeBytes     Int
+  url           String
+  createdAt     DateTime    @default(now())
+
+  @@map("uploads")
+}
+
+// ─── Ebook ────────────────────────────────────────────────────────────────────
+
+model Ebook {
+  id                   String      @id @default(cuid())
+  userId               String
+  user                 User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title                String
+  description          String      @default("")
+  coverImageUrl        String?
+
+  priceUsd             Decimal?    @db.Decimal(10, 2)
+  isFreeForSubscribers Boolean     @default(false)
+
+  status               EbookStatus @default(DRAFT)
+
+  deletedAt            DateTime?
+
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  chapters             EbookChapter[]
+
+  @@map("ebooks")
+}
+
+// ─── Ebook Chapter ────────────────────────────────────────────────────────────
+
+model EbookChapter {
+  id              String     @id @default(cuid())
+  ebookId         String
+  ebook           Ebook      @relation(fields: [ebookId], references: [id], onDelete: Cascade)
+
+  title           String
+  order           Int
+  format          PostFormat
+  markdownContent String?
+  blocks          Json?
+
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@unique([ebookId, order])
+  @@map("ebook_chapters")
 }

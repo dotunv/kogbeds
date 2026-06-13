@@ -8,7 +8,7 @@ const token = () => localStorage.getItem('access_token') ?? '';
 
 type Window = 7 | 30 | 90;
 
-export function AnalyticsDashboardPage() {
+export function AnalyticsDashboardPage({ pubSlug }: { pubSlug?: string }) {
   const [days, setDays]       = useState<Window>(30);
   const [data, setData]       = useState<AnalyticsDayView[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,7 +53,7 @@ export function AnalyticsDashboardPage() {
       ) : (
         <>
           {/* Stat cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '32px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '16px', marginBottom: '32px' }}>
             {[
               { label: 'Total views', value: totalViews },
               { label: 'Subscribers', value: subscribers },
@@ -69,7 +69,7 @@ export function AnalyticsDashboardPage() {
 
           {/* Bar chart */}
           <h2 style={{ fontSize: '15px', fontWeight: 600, color: 'var(--color-ink)', marginBottom: '16px' }}>Views per day</h2>
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '3px', height: '80px', marginBottom: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '3px', height: '120px', marginBottom: '8px' }}>
             {data.map((d) => (
               <div
                 key={d.date}

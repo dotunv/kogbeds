@@ -20,23 +20,32 @@ export function readingTime(text: string): number {
   return Math.max(1, Math.ceil(words / 200));
 }
 
-export function getBlogUrl(slug: string, rootDomain: string): string {
+export function getPublicationUrl(slug: string, rootDomain: string, customDomain?: string | null): string {
+  if (customDomain) return `https://${customDomain}`;
   const [host, port] = rootDomain.split(':');
   const portStr = port ? `:${port}` : '';
   if (host === 'localhost') return `http://${slug}.localhost${portStr}`;
   return `https://${slug}.${host}`;
 }
 
-export function getPostUrl(blogSlug: string, postSlug: string, rootDomain: string): string {
-  return `${getBlogUrl(blogSlug, rootDomain)}/${postSlug}`;
+/** @deprecated Use getPublicationUrl */
+export function getBlogUrl(slug: string, rootDomain: string): string {
+  return getPublicationUrl(slug, rootDomain);
+}
+
+export function getPostUrl(pubSlug: string, postSlug: string, rootDomain: string, customDomain?: string | null): string {
+  return `${getPublicationUrl(pubSlug, rootDomain, customDomain)}/${postSlug}`;
 }
 
 export function slugify(str: string): string {
-  return str
+  const slug = str
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, '')
     .trim()
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')   // strip leading/trailing hyphens
     .slice(0, 100);
+  // fallback if nothing alphanumeric remains
+  return slug || `post-${Date.now()}`;
 }

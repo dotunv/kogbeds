@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
 import { EventEmitterModule } from '@nestjs/event-emitter';
@@ -10,13 +11,14 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { validateEnvironment } from './config/environment.validation';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { AuthModule } from './modules/auth/auth.module';
-import { BlogsModule } from './modules/blogs/blogs.module';
 import { CommentsModule } from './modules/comments/comments.module';
 import { DiscoverModule } from './modules/discover/discover.module';
+import { EbooksModule } from './modules/ebooks/ebooks.module';
 import { PostsModule } from './modules/posts/posts.module';
 import { PublicModule } from './modules/public/public.module';
+import { PublicationsModule } from './modules/publications/publications.module';
+import { SubscribersModule } from './modules/subscribers/subscribers.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
-import { UsersModule } from './modules/users/users.module';
 import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
@@ -64,20 +66,22 @@ import { PrismaModule } from './prisma/prisma.module';
     }),
     PrismaModule,
     AuthModule,
-    UsersModule,
-    BlogsModule,
+    PublicationsModule,
     PostsModule,
     UploadsModule,
     PublicModule,
     DiscoverModule,
     CommentsModule,
     AnalyticsModule,
+    SubscribersModule,
+    EbooksModule,
   ],
   controllers: [AppController],
   providers: [
     AppService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
+    { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
   ],
 })
 export class AppModule {}

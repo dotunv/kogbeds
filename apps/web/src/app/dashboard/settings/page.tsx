@@ -1,2 +1,5 @@
-import { BlogSettingsPage } from '@/components/dashboard/BlogSettingsPage';
-export default function Page() { return <BlogSettingsPage />; }
+import { redirect } from 'next/navigation';
+
+export default function Page() {
+  redirect('/dashboard');
+}

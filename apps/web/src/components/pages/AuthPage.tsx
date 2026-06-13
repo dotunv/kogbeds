@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 
 const QUOTES = [
@@ -21,7 +21,11 @@ export function AuthPage({ mode }: Props) {
   const [showPw, setShowPw]     = useState(false);
   const [errors, setErrors]     = useState<Record<string, string>>({});
   const [loading, setLoading]   = useState(false);
-  const [quoteIdx]              = useState(() => Math.floor(Math.random() * QUOTES.length));
+  const [quoteIdx, setQuoteIdx] = useState(0);
+
+  useEffect(() => {
+    setQuoteIdx(Math.floor(Math.random() * QUOTES.length));
+  }, []);
 
   const quote = QUOTES[quoteIdx]!;
   const isRegister = mode === 'register';
@@ -64,8 +68,12 @@ export function AuthPage({ mode }: Props) {
         return;
       }
       // Store token and redirect
-      if (data.data?.accessToken) {
-        localStorage.setItem('access_token', data.data.accessToken);
+      const payload = data.data ?? data;
+      if (payload?.accessToken) {
+        localStorage.setItem('access_token', payload.accessToken);
+      }
+      if (payload?.user?.username) {
+        localStorage.setItem('grizzly_username', payload.user.username);
       }
       window.location.href = '/dashboard';
     } finally {

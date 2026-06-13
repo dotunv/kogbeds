@@ -1,11 +1,12 @@
+import { PublicationType } from '@prisma/client';
+
 export type PostPublishedPayload = {
-  blogId: string;
+  publicationId: string;
   postId: string;
   title: string;
   slug: string;
-  excerpt: string | null;
-  blogUsername: string;
-  siteBaseUrl: string;
+  excerpt: string;
+  publicationType: PublicationType;
 };
 
 export const POST_PUBLISHED_EVENT = 'post.published' as const;

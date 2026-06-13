@@ -29,6 +29,26 @@ export class BlogsService {
     });
   }
 
+  async findPublicByUsername(username: string): Promise<Omit<Blog, 'customDomainVerifyToken'>> {
+    const blog = await this.prisma.blog.findFirst({
+      where: { owner: { username }, isPublic: true },
+      select: {
+        id: true,
+        ownerId: true,
+        title: true,
+        description: true,
+        customCss: true,
+        isPublic: true,
+        customDomain: true,
+        customDomainVerifiedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    if (!blog) throw new NotFoundException('Blog not found');
+    return blog;
+  }
+
   async getForOwner(userId: string): Promise<Blog> {
     const blog = await this.findByOwnerId(userId);
     if (!blog) {
