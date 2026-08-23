@@ -5,15 +5,12 @@ import { AppService } from './app.service';
 describe('AppController', () => {
   let appController: AppController;
   const appServiceMock = {
-    getHealth: jest.fn(() => ({
-      status: 'ok',
-      service: 'grizzly',
-    })),
-    getReadiness: jest.fn(() =>
+    getHealth: jest.fn(() =>
       Promise.resolve({
-        status: 'ok',
-        service: 'grizzly',
-        database: 'up' as const,
+        status: 'ok' as const,
+        db: 'ok' as const,
+        redis: 'ok' as const,
+        uptime: 1,
       }),
     ),
   };
@@ -33,10 +30,12 @@ describe('AppController', () => {
   });
 
   describe('health', () => {
-    it('should return service health status', () => {
-      expect(appController.getHealth()).toEqual({
+    it('should return service health status', async () => {
+      await expect(appController.getHealth()).resolves.toEqual({
         status: 'ok',
-        service: 'grizzly',
+        db: 'ok',
+        redis: 'ok',
+        uptime: 1,
       });
     });
   });

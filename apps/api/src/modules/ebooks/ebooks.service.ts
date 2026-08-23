@@ -5,10 +5,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Ebook, EbookChapter, PostFormat, Prisma } from '@prisma/client';
+import * as he from 'he';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateEbookDto } from './dto/create-ebook.dto';
 import { UpdateEbookDto } from './dto/update-ebook.dto';
 import { CreateChapterDto } from './dto/create-chapter.dto';
+import { validateBlocks } from '../posts/schemas/blocks.schema';
 import { ReorderChaptersDto } from './dto/reorder-chapters.dto';
 
 const MAX_EBOOKS = 20;
@@ -35,8 +37,8 @@ export class EbooksService {
     return this.prisma.ebook.create({
       data: {
         userId,
-        title: dto.title,
-        description: dto.description ?? '',
+        title: he.encode(dto.title),
+        description: he.encode(dto.description ?? ''),
       },
     });
   }
@@ -55,8 +57,8 @@ export class EbooksService {
     return this.prisma.ebook.update({
       where: { id: ebook.id },
       data: {
-        ...(dto.title !== undefined ? { title: dto.title } : {}),
-        ...(dto.description !== undefined ? { description: dto.description } : {}),
+        ...(dto.title !== undefined ? { title: he.encode(dto.title) } : {}),
+        ...(dto.description !== undefined ? { description: he.encode(dto.description) } : {}),
       },
     });
   }
@@ -109,7 +111,7 @@ export class EbooksService {
     return this.prisma.ebookChapter.create({
       data: {
         ebookId,
-        title: dto.title,
+        title: he.encode(dto.title),
         order: nextOrder,
         format: dto.format,
         markdownContent: dto.format === PostFormat.MARKDOWN ? dto.markdownContent ?? null : null,
@@ -139,7 +141,7 @@ export class EbooksService {
     return this.prisma.ebookChapter.update({
       where: { id: chapter.id },
       data: {
-        title: dto.title,
+        title: he.encode(dto.title),
         format: dto.format,
         markdownContent: dto.format === PostFormat.MARKDOWN ? dto.markdownContent ?? null : null,
         blocks: dto.format === PostFormat.BLOCKS ? (dto.blocks as Prisma.InputJsonValue) : Prisma.DbNull,
@@ -236,6 +238,11 @@ export class EbooksService {
       }
       if ((dto.blocks as unknown[]).length > MAX_BLOCKS) {
         throw new BadRequestException('Max 500 blocks per chapter');
+      }
+      try {
+        validateBlocks(dto.blocks);
+      } catch {
+        throw new BadRequestException('Invalid block content');
       }
     }
   }

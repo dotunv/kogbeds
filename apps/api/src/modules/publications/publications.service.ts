@@ -4,21 +4,25 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Publication, Prisma } from '@prisma/client';
-import { init } from '@paralleldrive/cuid2';
+import { createId } from '@paralleldrive/cuid2';
 import * as dns from 'dns/promises';
+import * as he from 'he';
 import { PrismaService } from '../../prisma/prisma.service';
+import { TenantMiddleware } from '../../common/middleware/tenant.middleware';
 import { CreatePublicationDto } from './dto/create-publication.dto';
 import { UpdatePublicationDto } from './dto/update-publication.dto';
 import { InitiateDomainDto } from './dto/initiate-domain.dto';
-
-const createId = init({ length: 24 });
 
 const MAX_PUBLICATIONS = 10;
 
 @Injectable()
 export class PublicationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
 
   async listForUser(userId: string): Promise<Publication[]> {
     return this.prisma.publication.findMany({
@@ -53,8 +57,8 @@ export class PublicationsService {
       data: {
         userId,
         slug: dto.slug,
-        title: dto.title ?? dto.slug,
-        description: dto.description ?? '',
+        title: he.encode(dto.title ?? dto.slug),
+        description: he.encode(dto.description ?? ''),
         type: dto.type ?? 'BOTH',
       },
     });
@@ -70,7 +74,7 @@ export class PublicationsService {
       data: {
         userId,
         slug: username,
-        title: `${username}'s blog`,
+        title: he.encode(`${username}'s blog`),
         type: 'BOTH',
       },
     });
@@ -99,17 +103,19 @@ export class PublicationsService {
     dto: UpdatePublicationDto,
   ): Promise<Publication> {
     const pub = await this.requireOwner(userId, slug);
-    return this.prisma.publication.update({
+    const updated = await this.prisma.publication.update({
       where: { id: pub.id },
       data: {
-        ...(dto.title !== undefined ? { title: dto.title } : {}),
-        ...(dto.description !== undefined ? { description: dto.description } : {}),
+        ...(dto.title !== undefined ? { title: he.encode(dto.title) } : {}),
+        ...(dto.description !== undefined ? { description: he.encode(dto.description) } : {}),
         ...(dto.type !== undefined ? { type: dto.type } : {}),
         ...(dto.accentColor !== undefined ? { accentColor: dto.accentColor } : {}),
-        ...(dto.footerText !== undefined ? { footerText: dto.footerText } : {}),
+        ...(dto.footerText !== undefined ? { footerText: he.encode(dto.footerText) } : {}),
         ...(dto.isPublic !== undefined ? { isPublic: dto.isPublic } : {}),
       },
     });
+    await this.bustTenantCache(updated);
+    return updated;
   }
 
   async softDeleteForOwner(userId: string, slug: string): Promise<{ deleted: true }> {
@@ -118,6 +124,7 @@ export class PublicationsService {
       where: { id: pub.id },
       data: { deletedAt: new Date() },
     });
+    await this.bustTenantCache(pub);
     return { deleted: true };
   }
 
@@ -141,10 +148,12 @@ export class PublicationsService {
 
     const txtRecord = `grizzly-verify-${createId()}`;
 
-    await this.prisma.publication.update({
+    const updated = await this.prisma.publication.update({
       where: { id: pub.id },
       data: { customDomain: domain, domainTxtRecord: txtRecord, domainVerified: false },
     });
+    await this.bustTenantCache(updated);
+    await this.bustTenantCache(pub); // also bust prior hostname if it existed
 
     return {
       txtRecord,
@@ -173,10 +182,11 @@ export class PublicationsService {
     }
 
     if (verified) {
-      await this.prisma.publication.update({
+      const updated = await this.prisma.publication.update({
         where: { id: pub.id },
         data: { domainVerified: true },
       });
+      await this.bustTenantCache(updated);
     }
 
     return { verified };
@@ -188,7 +198,15 @@ export class PublicationsService {
       where: { id: pub.id },
       data: { customDomain: null, domainTxtRecord: null, domainVerified: false },
     });
+    await this.bustTenantCache(pub);
     return { removed: true };
+  }
+
+  private async bustTenantCache(pub: Publication): Promise<void> {
+    const rootDomain = this.config.get<string>('ROOT_DOMAIN') ?? 'localhost';
+    const hostnames = [`${pub.slug}.${rootDomain}`];
+    if (pub.customDomain) hostnames.push(pub.customDomain);
+    await TenantMiddleware.bustCache(this.config, hostnames);
   }
 
   private async requireOwner(userId: string, slug: string): Promise<Publication> {

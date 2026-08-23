@@ -8,9 +8,9 @@ export class ResponseInterceptor implements NestInterceptor {
       map((data) => {
         // Already wrapped (e.g. manually returned { data, meta })
         if (data !== null && typeof data === 'object' && 'data' in data) {
-          return data;
+          return { meta: null, ...(data as Record<string, unknown>) };
         }
-        return { data };
+        return { data, meta: null };
       }),
     );
   }

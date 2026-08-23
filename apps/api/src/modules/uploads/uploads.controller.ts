@@ -1,6 +1,9 @@
 import {
-  BadRequestException,
   Controller,
+  Delete,
+  Get,
+  NotFoundException,
+  Param,
   Post,
   UploadedFile,
   UseGuards,
@@ -9,87 +12,55 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
+import { Throttle } from '@nestjs/throttler';
+import { Publication } from '@prisma/client';
+import { CurrentPublication } from '../../common/decorators/publication.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { PrismaService } from '../../prisma/prisma.service';
-import { BlogsService } from '../blogs/blogs.service';
-import { StorageService } from './storage.service';
+import { UploadsService } from './uploads.service';
 
 const MAX_BYTES = 5 * 1024 * 1024;
+
+function requirePublication(publication: Publication | null): Publication {
+  if (!publication) {
+    throw new NotFoundException(JSON.stringify({ code: 'publication_not_found' }));
+  }
+  return publication;
+}
 
 @ApiTags('uploads')
 @ApiBearerAuth()
 @Controller('uploads')
 @UseGuards(JwtAuthGuard)
 export class UploadsController {
-  constructor(
-    private readonly blogsService: BlogsService,
-    private readonly storage: StorageService,
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly uploadsService: UploadsService) {}
 
   @Post()
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @UseInterceptors(
     FileInterceptor('file', {
       storage: memoryStorage(),
       limits: { fileSize: MAX_BYTES },
     }),
   )
-  async upload(
-    @CurrentUser('id') userId: string,
+  upload(
+    @CurrentPublication() publication: Publication | null,
     @UploadedFile() file: Express.Multer.File | undefined,
-  ): Promise<{ url: string; id: string }> {
-    if (!file?.buffer) {
-      throw new BadRequestException(
-        'file is required (multipart field "file")',
-      );
-    }
+  ) {
+    return this.uploadsService.upload(requirePublication(publication).id, file);
+  }
 
-    const blog = await this.blogsService.findByOwnerId(userId);
-    if (!blog) {
-      throw new BadRequestException('No blog found for current user');
-    }
+  @Get()
+  list(@CurrentPublication() publication: Publication | null) {
+    return this.uploadsService.listForPublication(requirePublication(publication).id);
+  }
 
-    let mime = file.mimetype;
-    if (!mime || mime === 'application/octet-stream') {
-      const name = file.originalname.toLowerCase();
-      if (name.endsWith('.jpg') || name.endsWith('.jpeg')) {
-        mime = 'image/jpeg';
-      } else if (name.endsWith('.png')) {
-        mime = 'image/png';
-      } else if (name.endsWith('.webp')) {
-        mime = 'image/webp';
-      } else if (name.endsWith('.gif')) {
-        mime = 'image/gif';
-      }
-    }
-
-    try {
-      this.storage.assertAllowedMime(mime);
-    } catch {
-      throw new BadRequestException(
-        'Only jpeg, png, webp, and gif images are allowed',
-      );
-    }
-
-    const { Readable } = await import('stream');
-    const stream = Readable.from(file.buffer);
-    const saved = await this.storage.saveUploadedFile(
-      blog.id,
-      stream,
-      mime,
-      file.originalname,
-    );
-
-    const asset = await this.prisma.asset.create({
-      data: {
-        blogId: blog.id,
-        filename: saved.filename,
-        mimeType: mime,
-        sizeBytes: saved.sizeBytes,
-      },
-    });
-
-    return { id: asset.id, url: saved.relativeUrl };
+  @Delete(':id')
+  remove(
+    @CurrentUser('id') userId: string,
+    @CurrentPublication() publication: Publication | null,
+    @Param('id') id: string,
+  ) {
+    return this.uploadsService.removeForOwner(userId, requirePublication(publication).id, id);
   }
 }

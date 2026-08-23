@@ -1,7 +1,7 @@
-import { Controller, Get, Redirect } from '@nestjs/common';
+import { Controller, Get } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
-import { AppService } from './app.service';
+import { AppService, HealthStatus } from './app.service';
 
 @ApiTags('health')
 @Controller()
@@ -9,25 +9,9 @@ export class AppController {
   constructor(private readonly appService: AppService) {}
 
   @SkipThrottle()
-  @Get()
-  @Redirect('/api-docs', 302)
-  root() {}
-
-  @SkipThrottle()
   @Get('health')
-  @ApiOperation({ summary: 'Liveness probe (no dependency checks)' })
-  getHealth(): { status: string; service: string } {
+  @ApiOperation({ summary: 'Health check — DB and Redis connectivity' })
+  getHealth(): Promise<HealthStatus> {
     return this.appService.getHealth();
-  }
-
-  @SkipThrottle()
-  @Get('health/ready')
-  @ApiOperation({ summary: 'Readiness probe (PostgreSQL connectivity)' })
-  getReadiness(): Promise<{
-    status: string;
-    service: string;
-    database: 'up';
-  }> {
-    return this.appService.getReadiness();
   }
 }

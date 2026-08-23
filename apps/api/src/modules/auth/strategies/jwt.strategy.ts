@@ -3,14 +3,14 @@ import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { User } from '@prisma/client';
 import { ExtractJwt, Strategy } from 'passport-jwt';
-import { UsersService } from '../../users/users.service';
+import { PrismaService } from '../../../prisma/prisma.service';
 import { AuthTokenPayload } from '../interfaces/auth-token-payload.interface';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     configService: ConfigService,
-    private readonly usersService: UsersService,
+    private readonly prisma: PrismaService,
   ) {
     const secret = configService.get<string>('JWT_SECRET');
     if (!secret) {
@@ -25,9 +25,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: AuthTokenPayload): Promise<User> {
-    const user = await this.usersService.findById(payload.sub);
+    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
     if (!user) {
-      throw new UnauthorizedException('Invalid authentication token');
+      throw new UnauthorizedException(JSON.stringify({ code: 'auth_token_expired' }));
     }
 
     return user;

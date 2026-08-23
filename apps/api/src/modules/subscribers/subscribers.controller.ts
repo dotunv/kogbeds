@@ -1,25 +1,18 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  NotFoundException,
-  Param,
-  Post,
-  Query,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Delete, Get, NotFoundException, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { Request } from 'express';
+import { Throttle } from '@nestjs/throttler';
+import { Publication } from '@prisma/client';
+import { CurrentPublication } from '../../common/decorators/publication.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { SubscribersService } from './subscribers.service';
 import { SubscribeDto } from './dto/subscribe.dto';
-import { PublicationType } from '@prisma/client';
 
-interface RequestWithPublication extends Request {
-  publication?: { id: string; type: PublicationType } | null;
+function requirePublication(publication: Publication | null): Publication {
+  if (!publication) {
+    throw new NotFoundException(JSON.stringify({ code: 'publication_not_found' }));
+  }
+  return publication;
 }
 
 @ApiTags('subscribers')
@@ -28,20 +21,20 @@ export class SubscribersController {
   constructor(private readonly subscribersService: SubscribersService) {}
 
   @Post('subscribe')
-  subscribe(@Req() req: RequestWithPublication, @Body() dto: SubscribeDto) {
-    const pub = req.publication;
-    if (!pub) {
-      throw new NotFoundException('Publication not found');
-    }
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  subscribe(@CurrentPublication() publication: Publication | null, @Body() dto: SubscribeDto) {
+    const pub = requirePublication(publication);
     return this.subscribersService.subscribe(pub.id, pub.type, dto);
   }
 
   @Get('subscribe/confirm')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   confirm(@Query('token') token: string) {
     return this.subscribersService.confirmByToken(token);
   }
 
   @Get('subscribe/unsubscribe')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   unsubscribe(@Query('token') token: string) {
     return this.subscribersService.unsubscribeByToken(token);
   }
@@ -49,11 +42,9 @@ export class SubscribersController {
   @Get('subscribers')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  listSubscribers(
-    @CurrentUser('id') userId: string,
-    @Query('publicationId') publicationId: string,
-  ) {
-    return this.subscribersService.listConfirmedForOwner(userId, publicationId);
+  listSubscribers(@CurrentUser('id') userId: string, @CurrentPublication() publication: Publication | null) {
+    const pub = requirePublication(publication);
+    return this.subscribersService.listConfirmedForOwner(userId, pub.id);
   }
 
   @Delete('subscribers/:id')
@@ -61,9 +52,10 @@ export class SubscribersController {
   @ApiBearerAuth()
   removeSubscriber(
     @CurrentUser('id') userId: string,
-    @Query('publicationId') publicationId: string,
+    @CurrentPublication() publication: Publication | null,
     @Param('id') subscriberId: string,
   ) {
-    return this.subscribersService.removeForOwner(userId, publicationId, subscriberId);
+    const pub = requirePublication(publication);
+    return this.subscribersService.removeForOwner(userId, pub.id, subscriberId);
   }
 }

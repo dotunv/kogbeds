@@ -2,54 +2,41 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 
-export type SendMailInput = {
-  to: string;
-  subject: string;
-  text: string;
-  html?: string;
-};
-
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
 
   constructor(private readonly config: ConfigService) {}
 
-  async sendMail(input: SendMailInput): Promise<void> {
+  async send(to: string, subject: string, html: string, text?: string): Promise<void> {
     const host = this.config.get<string>('SMTP_HOST');
     if (!host) {
-      this.logger.warn(
-        `SMTP not configured; would send to ${input.to}: ${input.subject}`,
-      );
+      this.logger.log('[MailService] Email skipped (SMTP not configured)');
       return;
     }
 
     const port = this.config.get<number>('SMTP_PORT') ?? 587;
-    const secure = this.config.get<boolean>('SMTP_SECURE') ?? port === 465;
     const user = this.config.get<string>('SMTP_USER');
     const pass = this.config.get<string>('SMTP_PASS');
-    const from =
-      this.config.get<string>('SMTP_FROM') ?? user ?? 'noreply@localhost';
+    const from = this.config.get<string>('SMTP_FROM') ?? user ?? 'noreply@localhost';
 
     const transporter = nodemailer.createTransport({
       host,
       port,
-      secure,
-      auth:
-        user && pass
-          ? {
-              user,
-              pass,
-            }
-          : undefined,
+      secure: port === 465,
+      auth: user && pass ? { user, pass } : undefined,
     });
 
-    await transporter.sendMail({
-      from,
-      to: input.to,
-      subject: input.subject,
-      text: input.text,
-      html: input.html ?? input.text.replace(/\n/g, '<br/>'),
-    });
+    try {
+      await transporter.sendMail({
+        from,
+        to,
+        subject,
+        html,
+        text: text ?? html.replace(/<[^>]+>/g, ''),
+      });
+    } catch (error) {
+      this.logger.error(`Failed to send email to ${to}`, error instanceof Error ? error.stack : String(error));
+    }
   }
 }

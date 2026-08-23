@@ -1,64 +1,55 @@
 import { z } from 'zod';
 
-const envSchema = z
-  .object({
-    NODE_ENV: z
-      .enum(['development', 'test', 'production'])
-      .default('development'),
-    PORT: z.coerce.number().int().positive().default(3000),
-    APP_DOMAIN: z.string().min(1).default('localhost'),
-    APP_PUBLIC_BASE_URL: z.string().url().optional(),
-    DATABASE_URL: z.string().min(1).optional(),
-    JWT_SECRET: z.string().min(16).optional(),
-    JWT_EXPIRES_IN: z.string().default('1d'),
-    REDIS_URL: z.string().optional(),
-    REDIS_HOST: z.string().optional(),
-    REDIS_PORT: z.coerce.number().int().positive().optional(),
-    REDIS_PASSWORD: z.string().optional(),
-    REDIS_TLS: z.enum(['true', 'false']).optional(),
-    UPLOAD_DIR: z.string().optional(),
-    CORS_ORIGIN: z.string().optional(),
-    SMTP_HOST: z.string().optional(),
-    SMTP_PORT: z.coerce.number().int().positive().optional(),
-    SMTP_SECURE: z.coerce.boolean().optional(),
-    SMTP_USER: z.string().optional(),
-    SMTP_PASS: z.string().optional(),
-    SMTP_FROM: z.string().optional(),
-  })
-  .superRefine((env, ctx) => {
-    if (env.NODE_ENV === 'test') {
-      return;
-    }
+const envSchema = z.object({
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  PORT: z.coerce.number().int().positive().default(3000),
+  ROOT_DOMAIN: z.string().min(1).default('localhost'),
+  ROOT_URL: z.string().url().default('http://localhost:3000'),
+  CORS_ORIGIN: z.string().default(''),
 
-    if (!env.DATABASE_URL) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['DATABASE_URL'],
-        message: 'DATABASE_URL is required',
-      });
-    }
+  DATABASE_URL: z.string().min(1),
 
-    if (!env.JWT_SECRET) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['JWT_SECRET'],
-        message: 'JWT_SECRET is required',
-      });
-      return;
-    }
+  REDIS_URL: z.string().min(1).default('redis://127.0.0.1:6379'),
 
-    if (env.JWT_SECRET.length < 16) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['JWT_SECRET'],
-        message: 'JWT_SECRET must be at least 16 characters',
-      });
-    }
-  });
+  JWT_SECRET: z.string().min(32),
+  JWT_EXPIRES_IN: z.string().default('15m'),
+  REFRESH_SECRET: z.string().min(32),
+  REFRESH_EXPIRES_IN: z.string().default('7d'),
+
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  SMTP_FROM: z.string().optional(),
+
+  UPLOAD_DIR: z.string().optional(),
+});
 
 export type EnvironmentVariables = z.infer<typeof envSchema>;
 
-export const validateEnvironment = (config: Record<string, unknown>) => {
+export const validateEnvironment = (
+  config: Record<string, unknown>,
+): EnvironmentVariables => {
+  if (config.NODE_ENV === 'test') {
+    const testSchema = envSchema.extend({
+      DATABASE_URL: z.string().default('postgresql://test:test@localhost:5432/test'),
+      JWT_SECRET: z.string().min(32).default('test-jwt-secret-please-change-0000000'),
+      REFRESH_SECRET: z
+        .string()
+        .min(32)
+        .default('test-refresh-secret-please-change-000'),
+    });
+    const parsed = testSchema.safeParse(config);
+    if (!parsed.success) {
+      throw new Error(
+        `Invalid environment configuration: ${parsed.error.issues
+          .map((i) => `${i.path.join('.')}: ${i.message}`)
+          .join('; ')}`,
+      );
+    }
+    return parsed.data;
+  }
+
   const parsed = envSchema.safeParse(config);
   if (!parsed.success) {
     const readableErrors = parsed.error.issues

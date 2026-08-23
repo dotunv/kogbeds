@@ -1,149 +1,196 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
-  InternalServerErrorException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
-import { Blog, User } from '@prisma/client';
+import { User } from '@prisma/client';
+import { StringValue } from 'ms';
 import { PrismaService } from '../../prisma/prisma.service';
-import { BlogsService } from '../blogs/blogs.service';
-import { UsersService } from '../users/users.service';
+import { PublicationsService } from '../publications/publications.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
-import { AuthTokenPayload } from './interfaces/auth-token-payload.interface';
+import { UpdateMeDto } from './dto/update-me.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
+import { AuthTokenPayload, RefreshTokenPayload } from './interfaces/auth-token-payload.interface';
 
 type SafeUser = Omit<User, 'passwordHash'>;
 
 export type AuthResponse = {
   accessToken: string;
-  user: SafeUser;
-  blog: Blog | null;
+  refreshToken: string;
+  user: { id: string; email: string; username: string };
 };
+
+const BCRYPT_COST = 12;
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly usersService: UsersService,
-    private readonly blogsService: BlogsService,
+    private readonly publicationsService: PublicationsService,
     private readonly jwtService: JwtService,
+    private readonly config: ConfigService,
   ) {}
 
   async register(dto: RegisterDto): Promise<AuthResponse> {
     const email = dto.email.trim().toLowerCase();
     const username = dto.username.trim().toLowerCase();
 
-    const [existingEmailUser, existingUsernameUser] = await Promise.all([
-      this.usersService.findByEmail(email),
-      this.usersService.findByUsername(username),
+    const [existingEmail, existingUsername] = await Promise.all([
+      this.prisma.user.findUnique({ where: { email } }),
+      this.prisma.user.findUnique({ where: { username } }),
     ]);
 
-    if (existingEmailUser) {
-      throw new ConflictException('Email is already registered');
+    if (existingEmail) {
+      throw new ConflictException(JSON.stringify({ code: 'auth_email_taken' }));
     }
-    if (existingUsernameUser) {
-      throw new ConflictException('Username is already taken');
+    if (existingUsername) {
+      throw new ConflictException(JSON.stringify({ code: 'auth_username_taken' }));
     }
 
-    const passwordHash = await bcrypt.hash(dto.password, 12);
+    const passwordHash = await bcrypt.hash(dto.password, BCRYPT_COST);
 
-    const userWithBlog = await this.prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          email,
-          username,
-          passwordHash,
-        },
+    const user = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: { email, username, passwordHash },
       });
-
-      const blog = await tx.blog.create({
-        data: {
-          ownerId: user.id,
-          title: `${username}'s blog`,
-          description: `Welcome to ${username}'s Grizzly blog.`,
-        },
-      });
-
-      return { user, blog };
+      await this.publicationsService.createDefault(created.id, username, tx);
+      return created;
     });
 
-    const safeUser = this.stripSensitiveFields(userWithBlog.user);
-    const accessToken = await this.signToken(userWithBlog.user);
-
-    return {
-      accessToken,
-      user: safeUser,
-      blog: userWithBlog.blog,
-    };
+    return this.issueTokens(user);
   }
 
   async login(dto: LoginDto): Promise<AuthResponse> {
     const email = dto.email.trim().toLowerCase();
-    const user = await this.usersService.findByEmail(email);
+    const user = await this.prisma.user.findUnique({ where: { email } });
 
     if (!user) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException(JSON.stringify({ code: 'auth_invalid_credentials' }));
     }
 
-    const isPasswordValid = await bcrypt.compare(
-      dto.password,
-      user.passwordHash,
-    );
+    const isPasswordValid = await bcrypt.compare(dto.password, user.passwordHash);
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException(JSON.stringify({ code: 'auth_invalid_credentials' }));
     }
 
-    const blog = await this.blogsService.findByOwnerId(user.id);
-    if (!blog) {
-      throw new InternalServerErrorException(
-        'Blog was not found for this user account',
-      );
+    return this.issueTokens(user);
+  }
+
+  async refresh(refreshToken: string | undefined): Promise<{ accessToken: string }> {
+    if (!refreshToken) {
+      throw new UnauthorizedException(JSON.stringify({ code: 'auth_token_expired' }));
     }
-    const accessToken = await this.signToken(user);
+
+    let payload: RefreshTokenPayload;
+    try {
+      payload = await this.jwtService.verifyAsync<RefreshTokenPayload>(refreshToken, {
+        secret: this.config.getOrThrow<string>('REFRESH_SECRET'),
+      });
+    } catch {
+      throw new UnauthorizedException(JSON.stringify({ code: 'auth_token_expired' }));
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+    if (!user) {
+      throw new UnauthorizedException(JSON.stringify({ code: 'auth_token_expired' }));
+    }
+
+    return { accessToken: await this.signAccessToken(user) };
+  }
+
+  async getProfile(userId: string): Promise<SafeUser> {
+    const user = await this.requireUser(userId);
+    return this.stripSensitiveFields(user);
+  }
+
+  async updateProfile(userId: string, dto: UpdateMeDto): Promise<SafeUser> {
+    const user = await this.requireUser(userId);
+
+    if (dto.email && dto.email !== user.email) {
+      const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
+      if (existing) {
+        throw new ConflictException(JSON.stringify({ code: 'auth_email_taken' }));
+      }
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(dto.email !== undefined ? { email: dto.email } : {}),
+      },
+    });
+
+    return this.stripSensitiveFields(updated);
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto): Promise<{ message: string }> {
+    const user = await this.requireUser(userId);
+
+    const valid = await bcrypt.compare(dto.currentPassword, user.passwordHash);
+    if (!valid) {
+      throw new UnauthorizedException(JSON.stringify({ code: 'auth_invalid_credentials' }));
+    }
+
+    const passwordHash = await bcrypt.hash(dto.newPassword, BCRYPT_COST);
+    await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+
+    return { message: 'Password updated' };
+  }
+
+  refreshCookieOptions(): { httpOnly: true; secure: boolean; sameSite: 'lax'; maxAge: number; path: string } {
+    return {
+      httpOnly: true,
+      secure: this.config.get<string>('NODE_ENV') === 'production',
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/auth',
+    };
+  }
+
+  private async issueTokens(user: User): Promise<AuthResponse> {
+    const [accessToken, refreshToken] = await Promise.all([
+      this.signAccessToken(user),
+      this.signRefreshToken(user),
+    ]);
 
     return {
       accessToken,
-      user: this.stripSensitiveFields(user),
-      blog,
+      refreshToken,
+      user: { id: user.id, email: user.email, username: user.username },
     };
   }
 
-  async getProfile(
-    userId: string,
-  ): Promise<{ user: SafeUser; blog: Blog | null }> {
-    const user = await this.usersService.findById(userId);
+  private async signAccessToken(user: User): Promise<string> {
+    const payload: AuthTokenPayload = { sub: user.id, email: user.email };
+    return this.jwtService.signAsync(payload, {
+      secret: this.config.getOrThrow<string>('JWT_SECRET'),
+      expiresIn: (this.config.get<string>('JWT_EXPIRES_IN') ?? '15m') as StringValue,
+    });
+  }
+
+  private async signRefreshToken(user: User): Promise<string> {
+    const payload: RefreshTokenPayload = { sub: user.id };
+    return this.jwtService.signAsync(payload, {
+      secret: this.config.getOrThrow<string>('REFRESH_SECRET'),
+      expiresIn: (this.config.get<string>('REFRESH_EXPIRES_IN') ?? '7d') as StringValue,
+    });
+  }
+
+  private async requireUser(userId: string): Promise<User> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
-      throw new UnauthorizedException('User not found');
+      throw new BadRequestException(JSON.stringify({ code: 'validation_error' }));
     }
-
-    const blog = await this.blogsService.findByOwnerId(user.id);
-    if (!blog) {
-      throw new InternalServerErrorException(
-        'Blog was not found for this user account',
-      );
-    }
-
-    return {
-      user: this.stripSensitiveFields(user),
-      blog,
-    };
-  }
-
-  private async signToken(user: User): Promise<string> {
-    const payload: AuthTokenPayload = {
-      sub: user.id,
-      email: user.email,
-      username: user.username,
-    };
-
-    return this.jwtService.signAsync(payload);
+    return user;
   }
 
   private stripSensitiveFields(user: User): SafeUser {
-    const { passwordHash, ...safeUser } = user;
-    void passwordHash;
+    const { passwordHash: _passwordHash, ...safeUser } = user;
     return safeUser;
   }
 }

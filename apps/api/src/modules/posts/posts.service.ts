@@ -6,19 +6,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { PostFormat, PostStatus, Prisma, PublicationType } from '@prisma/client';
-import { PublicationsService } from '../publications/publications.service';
+import { PostFormat, PostStatus, Prisma, Publication, PublicationType } from '@prisma/client';
+import * as he from 'he';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service';
+import { GRIZZLY_QUEUE, JobName } from '../queue/queue.constants';
 import { CreatePostDto } from './dto/create-post.dto';
-import {
-  ListPostsQueryDto,
-  PostStatusFilter,
-} from './dto/list-posts.query.dto';
+import { ListPostsQueryDto, PostStatusFilter } from './dto/list-posts.query.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
-import {
-  POST_PUBLISHED_EVENT,
-  type PostPublishedPayload,
-} from './events/post-published.event';
+import { validateBlocks } from './schemas/blocks.schema';
+import { POST_PUBLISHED_EVENT, type PostPublishedPayload } from './events/post-published.event';
 
 const postWithTagsInclude = {
   tags: { include: { tag: true } },
@@ -41,38 +39,36 @@ function generateSlug(title: string): string {
 const MAX_REVISIONS = 50;
 const MAX_BLOCKS = 500;
 const MAX_TAGS = 30;
+const MIN_SCHEDULE_MINUTES = 5;
 
 @Injectable()
 export class PostsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly publicationsService: PublicationsService,
     private readonly eventEmitter: EventEmitter2,
+    @InjectQueue(GRIZZLY_QUEUE) private readonly queue: Queue,
   ) {}
 
-  async createForOwner(
+  async createForPublication(
+    publication: Publication,
     userId: string,
     dto: CreatePostDto,
   ): Promise<PostWithTags> {
-    const pub = await this.requirePublicationOwner(userId);
-
+    this.assertOwner(publication, userId);
     this.validateFormat(dto.format, dto.markdownContent, dto.blocks);
 
     if (dto.tags && dto.tags.length > MAX_TAGS) {
       throw new BadRequestException(JSON.stringify({ code: 'post_too_many_tags' }));
     }
-    if (dto.format === PostFormat.BLOCKS && Array.isArray(dto.blocks) && (dto.blocks as unknown[]).length > MAX_BLOCKS) {
-      throw new BadRequestException(JSON.stringify({ code: 'post_too_many_blocks' }));
-    }
 
     let slug = dto.slug ?? generateSlug(dto.title);
-    slug = await this.ensureUniqueSlug(pub.id, slug);
+    slug = await this.ensureUniqueSlug(publication.id, slug);
 
     try {
       const post = await this.prisma.post.create({
         data: {
-          publicationId: pub.id,
-          title: dto.title.trim(),
+          publicationId: publication.id,
+          title: he.encode(dto.title.trim()),
           slug,
           excerpt: dto.excerpt ?? '',
           format: dto.format,
@@ -85,7 +81,7 @@ export class PostsService {
         },
       });
       if (dto.tags?.length) {
-        await this.replacePostTags(post.id, pub.id, dto.tags);
+        await this.replacePostTags(post.id, publication.id, dto.tags);
       }
       return this.getByIdWithTags(post.id);
     } catch (error: unknown) {
@@ -94,25 +90,24 @@ export class PostsService {
     }
   }
 
-  async listForOwner(
-    userId: string,
+  async listForPublication(
+    publication: Publication,
+    userId: string | undefined,
     query: ListPostsQueryDto,
   ): Promise<{ data: PostWithTags[]; meta: { total: number; page: number; limit: number; totalPages: number } }> {
-    const pub = await this.requirePublicationOwner(userId);
-    const statusFilter = this.statusToPrismaFilter(query.status);
-    return this.paginatePosts(
-      { publicationId: pub.id, deletedAt: null, ...statusFilter },
-      { orderBy: [{ updatedAt: 'desc' }], page: query.page, limit: query.limit },
-    );
-  }
+    const isOwner = userId === publication.userId;
+    const statusFilter = isOwner ? this.statusToPrismaFilter(query.status) : { status: PostStatus.PUBLISHED };
+    const tagFilter: Prisma.PostWhereInput = query.tag
+      ? { tags: { some: { tag: { name: query.tag.trim().toLowerCase() } } } }
+      : {};
 
-  async listPublishedForPublication(
-    publicationId: string,
-    query: ListPostsQueryDto,
-  ): Promise<{ data: PostWithTags[]; meta: { total: number; page: number; limit: number; totalPages: number } }> {
+    if (!isOwner) {
+      this.assertPublicReadable(publication);
+    }
+
     return this.paginatePosts(
-      { publicationId, status: PostStatus.PUBLISHED, deletedAt: null },
-      { orderBy: [{ publishedAt: 'desc' }], page: query.page, limit: query.limit },
+      { publicationId: publication.id, deletedAt: null, ...statusFilter, ...tagFilter },
+      { orderBy: [{ updatedAt: 'desc' }], page: query.page, limit: query.limit },
     );
   }
 
@@ -128,37 +123,34 @@ export class PostsService {
     return { data: posts, meta: { total, page, limit, totalPages: Math.ceil(total / limit) } };
   }
 
-  async getPublishedBySlug(publicationId: string, slug: string): Promise<PostWithTags> {
+  async getBySlug(publication: Publication, userId: string | undefined, slug: string): Promise<PostWithTags> {
+    const isOwner = userId === publication.userId;
     const post = await this.prisma.post.findFirst({
-      where: { publicationId, slug, status: PostStatus.PUBLISHED, deletedAt: null },
+      where: { publicationId: publication.id, slug, deletedAt: null },
       include: postWithTagsInclude,
     });
     if (!post) throw new NotFoundException(JSON.stringify({ code: 'post_not_found' }));
-    return post;
-  }
 
-  async getBySlugForOwner(userId: string, slug: string): Promise<PostWithTags> {
-    const pub = await this.requirePublicationOwner(userId);
-    const post = await this.prisma.post.findFirst({
-      where: { publicationId: pub.id, slug, deletedAt: null },
-      include: postWithTagsInclude,
-    });
-    if (!post) throw new NotFoundException(JSON.stringify({ code: 'post_not_found' }));
+    if (!isOwner) {
+      this.assertPublicReadable(publication);
+      if (post.status !== PostStatus.PUBLISHED) {
+        throw new NotFoundException(JSON.stringify({ code: 'post_not_found' }));
+      }
+    }
     return post;
   }
 
   async updateForOwner(
+    publication: Publication,
     userId: string,
     slug: string,
     dto: UpdatePostDto,
   ): Promise<PostWithTags> {
-    const existing = await this.getBySlugForOwner(userId, slug);
-    const pub = await this.requirePublicationOwner(userId);
+    this.assertOwner(publication, userId);
+    const existing = await this.requireOwnedPost(publication, slug);
 
     const contentChanged =
-      dto.title !== undefined ||
-      dto.markdownContent !== undefined ||
-      dto.blocks !== undefined;
+      dto.title !== undefined || dto.markdownContent !== undefined || dto.blocks !== undefined;
 
     if (contentChanged) {
       await this.saveRevision(existing);
@@ -175,7 +167,7 @@ export class PostsService {
       await this.prisma.post.update({
         where: { id: existing.id },
         data: {
-          ...(dto.title !== undefined ? { title: dto.title.trim() } : {}),
+          ...(dto.title !== undefined ? { title: he.encode(dto.title.trim()) } : {}),
           ...(dto.slug !== undefined ? { slug: dto.slug.trim().toLowerCase() } : {}),
           ...(dto.excerpt !== undefined ? { excerpt: dto.excerpt } : {}),
           ...(dto.format !== undefined ? { format: dto.format } : {}),
@@ -188,7 +180,7 @@ export class PostsService {
         },
       });
       if (dto.tags !== undefined) {
-        await this.replacePostTags(existing.id, pub.id, dto.tags);
+        await this.replacePostTags(existing.id, publication.id, dto.tags);
       }
       return this.getByIdWithTags(existing.id);
     } catch (error: unknown) {
@@ -197,52 +189,44 @@ export class PostsService {
     }
   }
 
-  async softDeleteForOwner(userId: string, slug: string): Promise<{ deleted: true }> {
-    const existing = await this.getBySlugForOwner(userId, slug);
-    await this.prisma.post.update({
-      where: { id: existing.id },
-      data: { deletedAt: new Date() },
-    });
+  async softDeleteForOwner(publication: Publication, userId: string, slug: string): Promise<{ deleted: true }> {
+    this.assertOwner(publication, userId);
+    const existing = await this.requireOwnedPost(publication, slug);
+    await this.prisma.post.update({ where: { id: existing.id }, data: { deletedAt: new Date() } });
     return { deleted: true };
   }
 
-  async publishForOwner(userId: string, slug: string): Promise<PostWithTags> {
-    const existing = await this.getBySlugForOwner(userId, slug);
-    const pub = await this.requirePublicationOwner(userId);
+  async publishForOwner(publication: Publication, userId: string, slug: string): Promise<PostWithTags> {
+    this.assertOwner(publication, userId);
+    const existing = await this.requireOwnedPost(publication, slug);
     const wasPublished = existing.status === PostStatus.PUBLISHED;
 
     await this.saveRevision(existing);
 
     const post = await this.prisma.post.update({
       where: { id: existing.id },
-      data: {
-        status: PostStatus.PUBLISHED,
-        publishedAt: new Date(),
-        scheduledAt: null,
-      },
+      data: { status: PostStatus.PUBLISHED, publishedAt: new Date(), scheduledAt: null },
       include: postWithTagsInclude,
     });
 
     if (!wasPublished) {
-      // Only emit newsletter job if type supports it
-      if (pub.type === PublicationType.NEWSLETTER || pub.type === PublicationType.BOTH) {
-        const payload: PostPublishedPayload = {
-          publicationId: pub.id,
-          postId: post.id,
-          title: post.title,
-          slug: post.slug,
-          excerpt: post.excerpt,
-          publicationType: pub.type,
-        };
-        this.eventEmitter.emit(POST_PUBLISHED_EVENT, payload);
-      }
+      const payload: PostPublishedPayload = {
+        publicationId: publication.id,
+        postId: post.id,
+        title: post.title,
+        slug: post.slug,
+        excerpt: post.excerpt,
+        publicationType: publication.type,
+      };
+      this.eventEmitter.emit(POST_PUBLISHED_EVENT, payload);
     }
 
     return post;
   }
 
-  async unpublishForOwner(userId: string, slug: string): Promise<PostWithTags> {
-    const existing = await this.getBySlugForOwner(userId, slug);
+  async unpublishForOwner(publication: Publication, userId: string, slug: string): Promise<PostWithTags> {
+    this.assertOwner(publication, userId);
+    const existing = await this.requireOwnedPost(publication, slug);
     return this.prisma.post.update({
       where: { id: existing.id },
       data: { status: PostStatus.DRAFT, publishedAt: null },
@@ -251,29 +235,43 @@ export class PostsService {
   }
 
   async scheduleForOwner(
+    publication: Publication,
     userId: string,
     slug: string,
-    scheduledAt: Date,
+    scheduledAtIso: string,
   ): Promise<PostWithTags> {
-    const existing = await this.getBySlugForOwner(userId, slug);
+    this.assertOwner(publication, userId);
+    const existing = await this.requireOwnedPost(publication, slug);
 
-    const minDate = new Date(Date.now() + 5 * 60 * 1000);
-    if (scheduledAt <= minDate) {
+    const scheduledAt = new Date(scheduledAtIso);
+    const minDate = new Date(Date.now() + MIN_SCHEDULE_MINUTES * 60 * 1000);
+    if (Number.isNaN(scheduledAt.getTime()) || scheduledAt <= minDate) {
       throw new BadRequestException(JSON.stringify({ code: 'post_schedule_past' }));
     }
 
-    return this.prisma.post.update({
+    const updated = await this.prisma.post.update({
       where: { id: existing.id },
       data: { status: PostStatus.SCHEDULED, scheduledAt },
       include: postWithTagsInclude,
     });
+
+    const delay = scheduledAt.getTime() - Date.now();
+    await this.queue.add(
+      JobName.POST_SCHEDULE,
+      { postId: updated.id },
+      { delay, attempts: 3, backoff: { type: 'exponential', delay: 5000 } },
+    );
+
+    return updated;
   }
 
   async listRevisionsForOwner(
+    publication: Publication,
     userId: string,
     slug: string,
   ): Promise<Prisma.PostRevisionGetPayload<object>[]> {
-    const post = await this.getBySlugForOwner(userId, slug);
+    this.assertOwner(publication, userId);
+    const post = await this.requireOwnedPost(publication, slug);
     return this.prisma.postRevision.findMany({
       where: { postId: post.id },
       orderBy: { revisionNumber: 'desc' },
@@ -282,16 +280,39 @@ export class PostsService {
   }
 
   async getRevisionForOwner(
+    publication: Publication,
     userId: string,
     slug: string,
     revisionNumber: number,
   ): Promise<Prisma.PostRevisionGetPayload<object>> {
-    const post = await this.getBySlugForOwner(userId, slug);
+    this.assertOwner(publication, userId);
+    const post = await this.requireOwnedPost(publication, slug);
     const revision = await this.prisma.postRevision.findUnique({
       where: { postId_revisionNumber: { postId: post.id, revisionNumber } },
     });
-    if (!revision) throw new NotFoundException('Revision not found');
+    if (!revision) throw new NotFoundException(JSON.stringify({ code: 'post_not_found' }));
     return revision;
+  }
+
+  async publishIfStillScheduled(postId: string): Promise<void> {
+    const post = await this.prisma.post.findUnique({ where: { id: postId }, include: { publication: true } });
+    if (!post || post.status !== PostStatus.SCHEDULED) return;
+
+    await this.saveRevision({ ...post, tags: [] } as unknown as PostWithTags);
+    const updated = await this.prisma.post.update({
+      where: { id: post.id },
+      data: { status: PostStatus.PUBLISHED, publishedAt: new Date(), scheduledAt: null },
+    });
+
+    const payload: PostPublishedPayload = {
+      publicationId: post.publicationId,
+      postId: updated.id,
+      title: updated.title,
+      slug: updated.slug,
+      excerpt: updated.excerpt,
+      publicationType: post.publication.type,
+    };
+    this.eventEmitter.emit(POST_PUBLISHED_EVENT, payload);
   }
 
   private async saveRevision(post: PostWithTags): Promise<void> {
@@ -302,7 +323,6 @@ export class PostsService {
     });
     const nextNumber = (maxRevision?.revisionNumber ?? 0) + 1;
 
-    // Enforce max 50 revisions
     const count = await this.prisma.postRevision.count({ where: { postId: post.id } });
     if (count >= MAX_REVISIONS) {
       const oldest = await this.prisma.postRevision.findFirst({
@@ -329,7 +349,7 @@ export class PostsService {
   private async ensureUniqueSlug(publicationId: string, slug: string): Promise<string> {
     let candidate = slug;
     let counter = 2;
-    while (true) {
+    for (;;) {
       const existing = await this.prisma.post.findFirst({
         where: { publicationId, slug: candidate, deletedAt: null },
       });
@@ -339,12 +359,8 @@ export class PostsService {
     }
   }
 
-  private async replacePostTags(
-    postId: string,
-    publicationId: string,
-    tags: string[],
-  ): Promise<void> {
-    const normalized = [...new Set(tags.map((t) => t.trim().toLowerCase()))].filter(Boolean);
+  private async replacePostTags(postId: string, publicationId: string, tags: string[]): Promise<void> {
+    const normalized = [...new Set(tags.map((t) => he.encode(t.trim().toLowerCase()).slice(0, 50)))].filter(Boolean);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.postTag.deleteMany({ where: { postId } });
@@ -382,45 +398,58 @@ export class PostsService {
     }
   }
 
-  private validateFormat(
-    format: PostFormat,
-    markdownContent?: string,
-    blocks?: unknown,
-  ): void {
+  private validateFormat(format: PostFormat, markdownContent?: string, blocks?: unknown): void {
     if (format === PostFormat.MARKDOWN && !markdownContent) {
       throw new BadRequestException(JSON.stringify({ code: 'post_invalid_format' }));
     }
-    if (format === PostFormat.BLOCKS && (!blocks || !Array.isArray(blocks) || (blocks as unknown[]).length === 0)) {
-      throw new BadRequestException(JSON.stringify({ code: 'post_invalid_format' }));
+    if (format === PostFormat.BLOCKS) {
+      if (!blocks || !Array.isArray(blocks) || (blocks as unknown[]).length === 0) {
+        throw new BadRequestException(JSON.stringify({ code: 'post_invalid_format' }));
+      }
+      if ((blocks as unknown[]).length > MAX_BLOCKS) {
+        throw new BadRequestException(JSON.stringify({ code: 'post_too_many_blocks' }));
+      }
+      try {
+        validateBlocks(blocks);
+      } catch {
+        throw new BadRequestException(JSON.stringify({ code: 'post_invalid_format' }));
+      }
     }
   }
 
-  private handleUniqueConstraintError(error: unknown): void {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === 'P2002'
-    ) {
-      throw new ConflictException(JSON.stringify({ code: 'post_slug_taken' }));
+  private assertPublicReadable(publication: Publication): void {
+    if (!publication.isPublic) {
+      throw new NotFoundException(JSON.stringify({ code: 'publication_not_public' }));
+    }
+    if (publication.type === PublicationType.NEWSLETTER) {
+      throw new NotFoundException(JSON.stringify({ code: 'post_not_found' }));
     }
   }
 
-  private async getByIdWithTags(postId: string): Promise<PostWithTags> {
-    const post = await this.prisma.post.findUnique({
-      where: { id: postId },
+  private assertOwner(publication: Publication, userId: string): void {
+    if (publication.userId !== userId) {
+      throw new ForbiddenException('Forbidden');
+    }
+  }
+
+  private async requireOwnedPost(publication: Publication, slug: string): Promise<PostWithTags> {
+    const post = await this.prisma.post.findFirst({
+      where: { publicationId: publication.id, slug, deletedAt: null },
       include: postWithTagsInclude,
     });
     if (!post) throw new NotFoundException(JSON.stringify({ code: 'post_not_found' }));
     return post;
   }
 
-  private async requirePublicationOwner(userId: string) {
-    // Get first non-deleted publication for user (single publication context)
-    // In multi-pub context, publicationId would come from tenant middleware
-    const pub = await this.prisma.publication.findFirst({
-      where: { userId, deletedAt: null },
-      orderBy: { createdAt: 'asc' },
-    });
-    if (!pub) throw new ForbiddenException('No publication found for current user');
-    return pub;
+  private handleUniqueConstraintError(error: unknown): void {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      throw new ConflictException(JSON.stringify({ code: 'post_slug_taken' }));
+    }
+  }
+
+  private async getByIdWithTags(postId: string): Promise<PostWithTags> {
+    const post = await this.prisma.post.findUnique({ where: { id: postId }, include: postWithTagsInclude });
+    if (!post) throw new NotFoundException(JSON.stringify({ code: 'post_not_found' }));
+    return post;
   }
 }

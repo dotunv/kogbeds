@@ -1,17 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createWriteStream, existsSync, mkdirSync, statSync } from 'fs';
+import { createWriteStream, existsSync, mkdirSync, statSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { pipeline } from 'stream/promises';
-import { randomBytes } from 'crypto';
+import { randomUUID } from 'crypto';
 import type { Readable } from 'stream';
 
-const ALLOWED_MIMES = new Set([
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-  'image/gif',
-]);
+const ALLOWED_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 
 const EXT_BY_MIME: Record<string, string> = {
   'image/jpeg': '.jpg',
@@ -25,19 +20,15 @@ export class StorageService {
   constructor(private readonly config: ConfigService) {}
 
   getUploadDir(): string {
-    const dir =
-      this.config.get<string>('UPLOAD_DIR') ??
-      join(process.cwd(), 'uploads', 'public');
+    const dir = this.config.get<string>('UPLOAD_DIR') ?? join(process.cwd(), 'uploads');
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
     }
     return dir;
   }
 
-  assertAllowedMime(mime: string): void {
-    if (!ALLOWED_MIMES.has(mime)) {
-      throw new Error(`Disallowed file type: ${mime}`);
-    }
+  assertAllowedMime(mime: string): boolean {
+    return ALLOWED_MIMES.has(mime);
   }
 
   extensionForMime(mime: string): string {
@@ -45,26 +36,29 @@ export class StorageService {
   }
 
   async saveUploadedFile(
-    blogId: string,
+    publicationId: string,
     stream: Readable,
     mimeType: string,
     originalName: string,
-  ): Promise<{ filename: string; relativeUrl: string; sizeBytes: number }> {
-    this.assertAllowedMime(mimeType);
-    const ext =
-      this.extensionForMime(mimeType) ||
-      originalName.match(/\.[a-z0-9]+$/i)?.[0] ||
-      '.bin';
-    const filename = `${randomBytes(16).toString('hex')}${ext}`;
-    const blogDir = join(this.getUploadDir(), blogId);
-    if (!existsSync(blogDir)) {
-      mkdirSync(blogDir, { recursive: true });
+  ): Promise<{ filename: string; url: string; sizeBytes: number }> {
+    const ext = this.extensionForMime(mimeType) || originalName.match(/\.[a-z0-9]+$/i)?.[0] || '.bin';
+    const filename = `${randomUUID()}${ext}`;
+    const pubDir = join(this.getUploadDir(), publicationId);
+    if (!existsSync(pubDir)) {
+      mkdirSync(pubDir, { recursive: true });
     }
-    const fullPath = join(blogDir, filename);
+    const fullPath = join(pubDir, filename);
     const writeStream = createWriteStream(fullPath);
     await pipeline(stream, writeStream);
     const sizeBytes = statSync(fullPath).size;
-    const relativeUrl = `/uploads/${blogId}/${filename}`;
-    return { filename, relativeUrl, sizeBytes };
+    const url = `/files/${publicationId}/${filename}`;
+    return { filename, url, sizeBytes };
+  }
+
+  deleteFile(publicationId: string, filename: string): void {
+    const fullPath = join(this.getUploadDir(), publicationId, filename);
+    if (existsSync(fullPath)) {
+      unlinkSync(fullPath);
+    }
   }
 }

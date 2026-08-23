@@ -1,13 +1,11 @@
-import { Module, forwardRef } from '@nestjs/common';
-import { ContentModule } from '../content/content.module';
-import { BlogsModule } from '../blogs/blogs.module';
+import { Module } from '@nestjs/common';
 import { PostsController } from './posts.controller';
 import { PostsService } from './posts.service';
+import { PostPublishedListener } from './listeners/post-published.listener';
 
 @Module({
-  imports: [forwardRef(() => BlogsModule), ContentModule],
   controllers: [PostsController],
-  providers: [PostsService],
+  providers: [PostsService, PostPublishedListener],
   exports: [PostsService],
 })
 export class PostsModule {}
