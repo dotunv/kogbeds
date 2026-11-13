@@ -75,7 +75,9 @@ export function AuthPage({ mode }: Props) {
       if (payload?.user?.username) {
         localStorage.setItem('grizzly_username', payload.user.username);
       }
-      window.location.href = '/dashboard';
+      window.location.href = '/dashboard'; // Full reload ensures dashboard auth guard runs
+    } catch {
+      setErrors({ form: 'Could not connect. Please check your connection and try again.' });
     } finally {
       setLoading(false);
     }

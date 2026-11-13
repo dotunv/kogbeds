@@ -8,12 +8,11 @@ import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { PostSettingsPanel } from './PostSettingsPanel';
 import type { Post } from '@/lib/types';
-import { slugify } from '@/lib/utils';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000';
 
 type Format = 'MARKDOWN' | 'BLOCKS';
-type Props  = { postId: string | null };
+type Props = { postId: string | null; publicationSlug: string };
 
 // ─── Block types ─────────────────────────────────────────────────────────────
 type BlockType = 'PARAGRAPH' | 'HEADING_1' | 'HEADING_2' | 'HEADING_3' | 'BLOCKQUOTE' | 'CODE' | 'ORDERED_LIST' | 'UNORDERED_LIST' | 'DIVIDER' | 'IMAGE';
@@ -23,46 +22,20 @@ type Block = { id: string; type: BlockType; content: string };
 
 // API uses lowercase types with different field names — map to/from internal Block
 function serializeBlock(b: Block): Record<string, unknown> {
-  switch (b.type) {
-    case 'PARAGRAPH':   return { type: 'paragraph', text: b.content };
-    case 'HEADING_1':   return { type: 'heading', level: 1, text: b.content };
-    case 'HEADING_2':   return { type: 'heading', level: 2, text: b.content };
-    case 'HEADING_3':   return { type: 'heading', level: 3, text: b.content };
-    case 'BLOCKQUOTE':  return { type: 'blockquote', text: b.content };
-    case 'CODE':        return { type: 'code', code: b.content };
-    case 'ORDERED_LIST': {
-      const items = b.content.split('\n').map((s) => s.trim()).filter(Boolean);
-      return { type: 'list', ordered: true, items: items.length > 0 ? items : [''] };
-    }
-    case 'UNORDERED_LIST': {
-      const items = b.content.split('\n').map((s) => s.trim()).filter(Boolean);
-      return { type: 'list', ordered: false, items: items.length > 0 ? items : [''] };
-    }
-    case 'IMAGE':       return { type: 'image', url: b.content };
-    case 'DIVIDER':     return { type: 'divider' };
+  if (b.type === 'DIVIDER') return { type: b.type };
+  if (b.type === 'IMAGE') return { type: b.type, url: b.content };
+  if (b.type === 'ORDERED_LIST' || b.type === 'UNORDERED_LIST') {
+    return { type: b.type, items: b.content.split('\n').map((item) => item.trim()).filter(Boolean) };
   }
+  return { type: b.type, content: b.content };
 }
 
 type RawApiBlock = Record<string, unknown>;
 function deserializeBlock(raw: RawApiBlock): Block {
-  const t = raw['type'] as string;
-  const id = crypto.randomUUID();
-  if (t === 'divider') return { id, type: 'DIVIDER', content: '' };
-  if (t === 'heading') {
-    const level = raw['level'] as number;
-    const type = level === 1 ? 'HEADING_1' : level === 2 ? 'HEADING_2' : 'HEADING_3';
-    return { id, type, content: (raw['text'] as string) ?? '' };
-  }
-  if (t === 'list') {
-    const items = (raw['items'] as string[] | undefined) ?? [];
-    const type = raw['ordered'] ? 'ORDERED_LIST' : 'UNORDERED_LIST';
-    return { id, type, content: items.join('\n') };
-  }
-  if (t === 'image')      return { id, type: 'IMAGE',      content: (raw['url']  as string) ?? '' };
-  if (t === 'code')       return { id, type: 'CODE',       content: (raw['code'] as string) ?? '' };
-  if (t === 'blockquote') return { id, type: 'BLOCKQUOTE', content: (raw['text'] as string) ?? '' };
-  // paragraph (default)
-  return { id, type: 'PARAGRAPH', content: (raw['text'] as string) ?? '' };
+  const type = raw.type as BlockType;
+  const content = type === 'IMAGE' ? raw.url : type === 'ORDERED_LIST' || type === 'UNORDERED_LIST'
+    ? ((raw.items as string[] | undefined) ?? []).join('\n') : raw.content;
+  return { id: crypto.randomUUID(), type, content: (content as string | undefined) ?? '' };
 }
 
 const BLOCK_MENU: { type: BlockType; label: string; icon: string; desc: string }[] = [
@@ -79,18 +52,28 @@ const BLOCK_MENU: { type: BlockType; label: string; icon: string; desc: string }
 ];
 
 // ─── EditorPage ───────────────────────────────────────────────────────────────
-export function EditorPage({ postId }: Props) {
+export function EditorPage({ postId, publicationSlug }: Props) {
   const router = useRouter();
   const [post, setPost]           = useState<Post | null>(null);
-  const [format, setFormat]       = useState<Format | null>(null);
+  const [format, setFormat]       = useState<Format | null>(postId ? null : 'MARKDOWN');
   const [title, setTitle]         = useState('');
   const [content, setContent]     = useState('');
   const [blocks, setBlocks]       = useState<Block[]>([]);
   const [saving, setSaving]       = useState(false);
   const [saved, setSaved]         = useState(false);
+  const [dirty, setDirty] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [authError, setAuthError] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [published, setPublished] = useState(false);
+  const [confirmPublish, setConfirmPublish] = useState(false);
+  const pendingSave = useRef<Promise<Post | null>>(Promise.resolve(null));
+  const editVersion = useRef(0);
+  const persistedVersion = useRef(0);
+  const base = `${API}/publications/${encodeURIComponent(publicationSlug)}/posts`;
 
   // Use refs to avoid stale closures in the debounce callback
   const postRef    = useRef<Post | null>(null);
@@ -99,216 +82,189 @@ export function EditorPage({ postId }: Props) {
   const contentRef = useRef('');
   const blocksRef  = useRef<Block[]>([]);
   const saveTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
 
-  postRef.current    = post;
-  formatRef.current  = format;
-  titleRef.current   = title;
-  contentRef.current = content;
-  blocksRef.current  = blocks;
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  useEffect(() => {
+    postRef.current = post;
+    formatRef.current = format;
+    titleRef.current = title;
+    contentRef.current = content;
+    blocksRef.current = blocks;
+  }, [post, format, title, content, blocks]);
 
   function token() { return localStorage.getItem('access_token') ?? ''; }
 
   // Load existing post
   useEffect(() => {
-    if (!postId) return;
-    fetch(`${API}/posts/${postId}`, { headers: { Authorization: `Bearer ${token()}` } })
-      .then((r) => { if (r.status === 401) { window.location.href = '/login'; throw new Error(); } return r.json(); })
+    if (!postId || !publicationSlug) return;
+    fetch(`${base}/${encodeURIComponent(postId)}`, { headers: { Authorization: `Bearer ${token()}` } })
+      .then((r) => { if (r.status === 401) { window.location.href = '/login'; throw new Error(); } if (!r.ok) throw new Error('Could not load this post.'); return r.json(); })
       .then((r) => {
         const p: Post = r.data;
         // API has no format field — derive it from which content field is present
-        const fmt: Format = Array.isArray(p.blocks) && (p.blocks as unknown[]).length > 0 ? 'BLOCKS' : 'MARKDOWN';
+        const fmt: Format = p.format;
         setPost(p);
         setFormat(fmt);
         setTitle(p.title);
-        setContent(p.contentMarkdown ?? '');
+        setContent(p.markdownContent ?? '');
         if (fmt === 'BLOCKS') {
           setBlocks((p.blocks as Record<string, unknown>[]).map(deserializeBlock));
         }
       })
-      .catch(() => {});
-  }, [postId]);
+      .catch(() => setLoadError('Could not load this post. Return to your publication and try again.'));
+  }, [postId, base, publicationSlug]);
 
   // Auto-save debounce: 2.5s after last keystroke
   useEffect(() => {
-    if (!format) return;
+    if (!format || editVersion.current === persistedVersion.current) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => void debouncedSave(), 2500);
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [title, content, blocks, format]);
 
-  async function debouncedSave() {
-    const fmt    = formatRef.current;
-    const p      = postRef.current;
-    const hasTitle   = titleRef.current.trim().length > 0;
-    const hasContent = contentRef.current.trim().length > 0;
-    const hasBlocks  = blocksRef.current.length > 0;
-    if (!fmt) return;
-    // For BLOCKS format, don't save until the user has added at least one block
-    if (fmt === 'BLOCKS' && !hasBlocks) return;
-    // For MARKDOWN, require at least a title or content
-    if (fmt === 'MARKDOWN' && !hasTitle && !hasContent) return;
-    if (!p) {
-      await createPost(fmt, { silent: true });
-    } else {
-      await patchPost(p, fmt);
+  async function savePost(): Promise<Post | null> {
+    const fmt = formatRef.current;
+    const version = editVersion.current;
+    const snapshot = { title: titleRef.current.trim(), content: contentRef.current, blocks: [...blocksRef.current] };
+    if (!fmt || !publicationSlug) throw new Error('Choose a publication before writing.');
+    if (!snapshot.title || (fmt === 'MARKDOWN' && !snapshot.content.trim()) || (fmt === 'BLOCKS' && !snapshot.blocks.length)) {
+      throw new Error('Add a title and some content to save your draft.');
     }
-  }
-
-  async function patchPost(p: Post, fmt: Format) {
+    const previous = postRef.current;
+    const body = fmt === 'MARKDOWN'
+      ? { title: snapshot.title, markdownContent: snapshot.content }
+      : { title: snapshot.title, blocks: snapshot.blocks.map(serializeBlock) };
     setSaving(true);
-    const body: Record<string, unknown> = { title: titleRef.current };
-    if (fmt === 'MARKDOWN') {
-      body.contentMarkdown = contentRef.current;
-    } else if (blocksRef.current.length > 0) {
-      body.blocks = blocksRef.current.map(serializeBlock);
-    }
-    const r = await fetch(`${API}/posts/${p.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
-      body: JSON.stringify(body),
-    });
-    setSaving(false);
-    if (r.status === 401) { setAuthError(true); return; }
-    if (r.ok) { setSaved(true); setTimeout(() => setSaved(false), 2000); }
-  }
-
-  async function createPost(fmt: Format, opts: { silent?: boolean } = {}): Promise<Post | null> {
-    const t        = titleRef.current.trim() || 'Untitled';
-    const baseSlug = slugify(t);
-    const content: Record<string, unknown> = {};
-    if (fmt === 'MARKDOWN') {
-      content.contentMarkdown = contentRef.current || '';
-    } else {
-      content.blocks = blocksRef.current.map(serializeBlock);
-    }
-
-    if (!opts.silent) setSaving(true);
-
-    // Retry with a unique suffix if the slug is already taken (409)
-    let slug = baseSlug;
-    let r: Response | null = null;
-    let res: Record<string, unknown> = {};
-    for (let attempt = 0; attempt < 3; attempt++) {
-      r = await fetch(`${API}/posts`, {
-        method: 'POST',
+    setSaveError(null);
+    try {
+      const response = await fetch(previous ? `${base}/${encodeURIComponent(previous.slug)}` : base, {
+        method: previous ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
-        body: JSON.stringify({ title: t, slug, ...content }),
+        body: JSON.stringify(previous ? body : { ...body, format: fmt }),
       });
-      if (r.status === 401) { setAuthError(true); return null; }
-      res = (await r.json()) as Record<string, unknown>;
-      if (r.status !== 409) break;
-      slug = `${baseSlug}-${Math.random().toString(36).slice(2, 6)}`;
+      if (response.status === 401) setAuthError(true);
+      if (!response.ok) throw new Error('Could not save your draft. Your changes are still in the editor; please try again.');
+      const result = await response.json();
+      const savedPost: Post = result.data;
+      postRef.current = savedPost;
+      if (mountedRef.current) {
+        setPost(savedPost);
+        persistedVersion.current = version;
+        setSaved(editVersion.current === version);
+        setDirty(editVersion.current !== version);
+        if (!previous) window.history.replaceState(null, '', `/dashboard/editor/${encodeURIComponent(savedPost.slug)}?publication=${encodeURIComponent(publicationSlug)}`);
+      }
+      return savedPost;
+    } finally {
+      if (mountedRef.current) setSaving(false);
     }
-
-    if (!opts.silent) setSaving(false);
-    if (!r!.ok) throw new Error((res?.['message'] as string | undefined) ?? `Create failed (${r!.status})`);
-    const created: Post = res['data'] as Post;
-    setPost(created);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-    window.history.replaceState(null, '', `/dashboard/editor/${created.slug}`);
-    return created;
   }
+
+  function queueSave(): Promise<Post | null> {
+    const task = pendingSave.current.catch(() => null).then(() => savePost());
+    pendingSave.current = task;
+    return task.catch((error: unknown) => {
+      if (mountedRef.current) setSaveError(error instanceof Error ? error.message : 'Could not save your draft.');
+      throw error;
+    });
+  }
+
+  async function debouncedSave() {
+    if (!titleRef.current.trim() || (formatRef.current === 'MARKDOWN' && !contentRef.current.trim()) || (formatRef.current === 'BLOCKS' && !blocksRef.current.length)) return;
+    try { await queueSave(); } catch { /* error shown in the editor */ }
+  }
+
+  function markChanged() { editVersion.current += 1; setDirty(true); setSaved(false); setPublished(false); }
+
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (editVersion.current !== persistedVersion.current) { event.preventDefault(); }
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, []);
 
   function openSettings() {
     setSettingsOpen(true);
   }
 
   async function publish() {
+    setConfirmPublish(false);
     setPublishing(true);
+    setPublishError(null);
     try {
-      let p = post;
-      if (!p) { p = await createPost(format ?? 'MARKDOWN'); }
-      else { await patchPost(p, format ?? 'MARKDOWN'); }
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      const p = await queueSave();
       if (!p) return;
-      const pr = await fetch(`${API}/posts/${p.id}/publish`, {
-        method: 'PATCH',
-        headers: { Authorization: `Bearer ${token()}` },
+      if (editVersion.current !== persistedVersion.current) throw new Error('Your draft changed while saving. Please publish again.');
+      const response = await fetch(`${base}/${encodeURIComponent(p.slug)}/publish`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token()}` },
       });
-      if (!pr.ok) {
-        const pe = await pr.json();
-        throw new Error(pe?.message ?? pe?.error?.message ?? `Publish failed (${pr.status})`);
-      }
-      setPost((prev) => prev ? { ...prev, isPublished: true, publishedAt: new Date().toISOString() } : prev);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Something went wrong');
-    } finally {
-      setPublishing(false);
-    }
+      if (!response.ok) throw new Error('Could not publish. Your draft is saved; please try again.');
+      const result = await response.json();
+      postRef.current = result.data;
+      setPost(result.data);
+      setPublished(true);
+    } catch (error) {
+      setPublishError(error instanceof Error ? error.message : 'Could not publish. Please try again.');
+    } finally { setPublishing(false); }
   }
 
-  // ── Format chooser ────────────────────────────────────────────────────────
-  if (!postId && !format) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--color-canvas)', fontFamily: 'var(--font-ui)', gap: '28px' }}>
-        <div style={{ textAlign: 'center' }}>
-          <p style={{ fontSize: '14px', fontWeight: 500, color: 'var(--color-ink)', margin: '0 0 4px', letterSpacing: '-0.01em' }}>
-            Choose your writing format
-          </p>
-          <p style={{ fontSize: '13px', color: 'var(--color-muted)', margin: 0 }}>
-            You can change this later.
-          </p>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', width: '100%', maxWidth: '400px', padding: '0 24px' }}>
-          {([
-            { fmt: 'MARKDOWN' as Format, label: 'Markdown', sub: 'Plain text + syntax' },
-            { fmt: 'BLOCKS'   as Format, label: 'Blocks',   sub: 'Visual block editor'  },
-          ] as const).map(({ fmt, label, sub }) => (
-            <button
-              key={fmt}
-              onClick={() => setFormat(fmt)}
-              style={{
-                padding: '18px 16px',
-                border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius)',
-                background: 'var(--color-surface)',
-                cursor: 'pointer',
-                textAlign: 'left',
-                transition: 'border-color var(--duration-fast), box-shadow var(--duration-fast)',
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-accent)'; e.currentTarget.style.boxShadow = 'var(--shadow-sm)'; }}
-              onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--color-border)'; e.currentTarget.style.boxShadow = 'none'; }}
-            >
-              <span style={{ fontSize: '13.5px', fontWeight: 600, display: 'block', marginBottom: '3px', color: 'var(--color-ink)' }}>{label}</span>
-              <span style={{ fontSize: '12px', color: 'var(--color-muted)', lineHeight: 1.4 }}>{sub}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-    );
+  if (!publicationSlug || loadError) {
+    return <div role="alert" style={{ padding: '40px' }}>{loadError ?? 'Choose a publication before writing.'} <Link href="/dashboard">Go to publications</Link></div>;
   }
+  if (postId && !format) return <div style={{ padding: '40px' }}>Loading post…</div>;
 
-  const status = post?.isPublished ? 'PUBLISHED' : 'DRAFT';
+  const status = post?.status === 'PUBLISHED' ? 'PUBLISHED' : 'DRAFT';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--color-canvas)', fontFamily: 'var(--font-ui)' }}>
       {/* Top bar */}
       <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', height: '52px', borderBottom: '1px solid var(--color-border)', background: 'var(--color-surface)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button onClick={() => router.back()} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', padding: 0 }}>
+          <button onClick={() => { if (!dirty || window.confirm('You have unsaved changes. Leave the editor?')) router.push(`/dashboard/publications/${encodeURIComponent(publicationSlug)}`); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', padding: 0 }}>
             <ArrowLeft size={14} /> Posts
           </button>
           <StatusBadge status={status} />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {!saving && dirty && <span style={{ fontSize: '12px', color: 'var(--color-muted)' }}>Unsaved changes</span>}
           {saving && <span style={{ fontSize: '12px', color: 'var(--color-muted)' }}>Saving…</span>}
-          {!saving && saved && <span style={{ fontSize: '12px', color: 'var(--color-muted)' }}>Saved</span>}
-          <Button variant="ghost" size="sm" onClick={openSettings}>
+          {!saving && saved && !saveError && <span style={{ fontSize: '12px', color: 'var(--color-muted)' }}>Saved</span>}
+          <Button variant="ghost" size="sm" onClick={openSettings} aria-label="Post settings">
             <SettingsIcon size={14} style={{ marginRight: '6px' }} />
             Settings
           </Button>
-          <Button size="sm" loading={publishing} onClick={publish}>
+          <Button size="sm" loading={publishing} onClick={() => status === 'PUBLISHED' ? void publish() : setConfirmPublish(true)}>
             {status === 'PUBLISHED' ? 'Update' : 'Publish'}
           </Button>
         </div>
       </header>
 
+      {confirmPublish && <div role="dialog" aria-label="Confirm publication" style={{ padding: '16px 24px', background: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)' }}>
+        <p>This will publish your post. If this publication sends newsletters, confirmed subscribers will be emailed.</p>
+        <Button size="sm" onClick={() => void publish()}>Publish post</Button>{' '}
+        <Button size="sm" variant="ghost" onClick={() => setConfirmPublish(false)}>Cancel</Button>
+      </div>}
+      {published && post && <div role="status" style={{ padding: '12px 24px', borderBottom: '1px solid var(--color-border)' }}>Post published. <a href={`${publicationSlug === '' ? '' : `//${publicationSlug}.${(process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000')}`}/${post.slug}`} target="_blank" rel="noreferrer">View post</a></div>}
+      {saveError && <div role="alert" style={{ padding: '10px 24px', color: 'var(--color-danger)' }}>{saveError} <button onClick={() => void queueSave().catch(() => {})}>Try saving again</button></div>}
       {/* Session expired banner */}
       {authError && (
         <div style={{ background: 'var(--color-danger-light)', borderBottom: '1px solid var(--color-border)', padding: '10px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '13px', color: 'var(--color-danger)', fontFamily: 'var(--font-ui)' }}>
           <span>Your session has expired.</span>
-          <a href="/login" style={{ fontWeight: 600, color: 'var(--color-danger)', textDecoration: 'underline' }}>Log in again</a>
+          <button onClick={() => router.push('/login')} style={{ fontWeight: 600, color: 'var(--color-danger)', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', fontFamily: 'var(--font-ui)' }}>Log in again</button>
+        </div>
+      )}
+
+      {/* Publish error toast */}
+      {publishError && (
+        <div style={{ background: 'var(--color-danger-light)', borderBottom: '1px solid var(--color-border)', padding: '10px 24px', fontSize: '13px', color: 'var(--color-danger)', fontFamily: 'var(--font-ui)' }}>
+          {publishError}
         </div>
       )}
 
@@ -316,8 +272,9 @@ export function EditorPage({ postId }: Props) {
       <div style={{ flex: 1, overflowY: 'auto', padding: '48px 24px' }}>
         <div style={{ maxWidth: 'var(--max-content)', margin: '0 auto' }}>
           <textarea
+            disabled={publishing}
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => (markChanged(), setTitle(e.target.value))}
             placeholder="Give your post a title"
             rows={1}
             style={{ width: '100%', fontFamily: 'var(--font-reading)', fontSize: '36px', fontWeight: 600, color: 'var(--color-ink)', background: 'transparent', border: 'none', outline: 'none', resize: 'none', lineHeight: 1.2, marginBottom: '12px', overflow: 'hidden' }}
@@ -327,27 +284,28 @@ export function EditorPage({ postId }: Props) {
 
           {format === 'MARKDOWN' ? (
             <textarea
+              disabled={publishing}
               value={content}
-              onChange={(e) => setContent(e.target.value)}
+              onChange={(e) => (markChanged(), setContent(e.target.value))}
               placeholder="Start writing… Markdown is supported."
               style={{ width: '100%', fontFamily: 'var(--font-code)', fontSize: '15px', lineHeight: 1.8, color: 'var(--color-ink)', background: 'transparent', border: 'none', outline: 'none', resize: 'none', minHeight: '60vh' }}
             />
           ) : (
-            <BlockEditor blocks={blocks} onChange={setBlocks} />
+            <BlockEditor blocks={blocks} onChange={(next) => { markChanged(); setBlocks(next); }} />
           )}
         </div>
       </div>
 
       <KeyboardHandler
-        onSave={() => post ? void patchPost(post, format ?? 'MARKDOWN') : void createPost(format ?? 'MARKDOWN')}
-        onPublish={publish}
+        onSave={() => void queueSave().catch(() => {})}
+        onPublish={() => status === 'PUBLISHED' ? void publish() : setConfirmPublish(true)}
         onSettings={openSettings}
       />
 
       {settingsOpen && (
         <PostSettingsPanel
           post={post}
-          pubSlug={(post as (Post & { publication?: { slug?: string } }) | null)?.publication?.slug}
+          pubSlug={publicationSlug}
           onClose={() => setSettingsOpen(false)}
           onUpdate={(updated) => setPost(updated)}
         />

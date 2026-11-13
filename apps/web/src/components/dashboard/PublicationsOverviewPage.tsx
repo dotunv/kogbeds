@@ -201,11 +201,39 @@ function NewPublicationModal({ onClose, onCreated }: {
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState('');
   const backdropRef         = useRef<HTMLDivElement>(null);
+  const modalRef            = useRef<HTMLDivElement>(null);
+  const previousFocus       = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose(); }
+    // Store the previously focused element and move focus into the modal
+    previousFocus.current = document.activeElement as HTMLElement;
+    modalRef.current?.focus();
+
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
+      // Simple focus trap: keep Tab within the modal
+      if (e.key === 'Tab' && modalRef.current) {
+        const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0]!;
+        const last = focusable[focusable.length - 1]!;
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
     document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      // Restore focus to the previously focused element
+      previousFocus.current?.focus();
+    };
   }, [onClose]);
 
   async function create() {
@@ -239,6 +267,11 @@ function NewPublicationModal({ onClose, onCreated }: {
         style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.32)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       >
         <div
+          ref={modalRef}
+          tabIndex={-1}
+          role="dialog"
+          aria-modal="true"
+          aria-label="New publication"
           style={{
             width: '440px',
             maxWidth: '92vw',
@@ -251,6 +284,7 @@ function NewPublicationModal({ onClose, onCreated }: {
             flexDirection: 'column',
             gap: '18px',
             fontFamily: 'var(--font-ui)',
+            outline: 'none',
           }}
           onClick={(e) => e.stopPropagation()}
         >

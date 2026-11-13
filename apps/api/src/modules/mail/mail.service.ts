@@ -8,24 +8,35 @@ export class MailService {
 
   constructor(private readonly config: ConfigService) {}
 
-  async send(to: string, subject: string, html: string, text?: string): Promise<void> {
-    const host = this.config.get<string>('SMTP_HOST');
-    if (!host) {
-      this.logger.log('[MailService] Email skipped (SMTP not configured)');
-      return;
-    }
+  private transporter: nodemailer.Transporter | null = null;
 
+  private getTransporter(): nodemailer.Transporter | null {
+    if (this.transporter) return this.transporter;
+    const host = this.config.get<string>('SMTP_HOST');
+    if (!host) return null;
     const port = this.config.get<number>('SMTP_PORT') ?? 587;
     const user = this.config.get<string>('SMTP_USER');
     const pass = this.config.get<string>('SMTP_PASS');
-    const from = this.config.get<string>('SMTP_FROM') ?? user ?? 'noreply@localhost';
-
-    const transporter = nodemailer.createTransport({
+    this.transporter = nodemailer.createTransport({
       host,
       port,
       secure: port === 465,
       auth: user && pass ? { user, pass } : undefined,
+      pool: true,
+      maxConnections: 5,
     });
+    return this.transporter;
+  }
+
+  async send(to: string, subject: string, html: string, text?: string): Promise<void> {
+    const transporter = this.getTransporter();
+    if (!transporter) {
+      this.logger.log('[MailService] Email skipped (SMTP not configured)');
+      return;
+    }
+
+    const user = this.config.get<string>('SMTP_USER');
+    const from = this.config.get<string>('SMTP_FROM') ?? user ?? 'noreply@localhost';
 
     try {
       await transporter.sendMail({

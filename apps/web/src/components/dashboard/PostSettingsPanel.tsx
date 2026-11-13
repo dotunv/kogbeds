@@ -37,6 +37,7 @@ export function PostSettingsPanel({ post, pubSlug, onClose, onUpdate }: Props) {
   const [schedMode, setSchedMode]   = useState<ScheduleMode>('now');
   const [scheduledAt, setScheduledAt] = useState('');
   const [saving, setSaving]         = useState(false);
+  const [error, setError] = useState('');
 
   const tk = () => localStorage.getItem('access_token') ?? '';
 
@@ -59,14 +60,20 @@ export function PostSettingsPanel({ post, pubSlug, onClose, onUpdate }: Props) {
       metaDescription: metaDesc,
     };
     if (ogImage) body['ogImageUrl'] = ogImage;
-    const res = await fetch(`${API}/publications/${pubSlug}/posts/${post.slug}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk()}` },
-      body: JSON.stringify(body),
-    }).then((r) => r.json());
-    onUpdate(res.data);
-    setSaving(false);
-    onClose();
+    setError('');
+    try {
+      const response = await fetch(`${API}/publications/${pubSlug}/posts/${post.slug}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tk()}` },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) throw new Error('Could not save settings.');
+      const res = await response.json();
+      onUpdate(res.data);
+      onClose();
+    } catch {
+      setError('Could not save settings. Please try again.');
+    } finally { setSaving(false); }
   }
 
   async function schedule() {
@@ -95,6 +102,7 @@ export function PostSettingsPanel({ post, pubSlug, onClose, onUpdate }: Props) {
 
   return (
     <>
+      {error && <div role="alert" style={{ position: 'fixed', top: 0, right: 0, zIndex: 60, padding: 12, background: 'var(--color-surface)', color: 'var(--color-danger)' }}>{error}</div>}
       {/* Backdrop */}
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 40 }} onClick={onClose} />
 

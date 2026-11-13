@@ -22,15 +22,16 @@ export function SinglePostPage({ username, slug }: Props) {
 
   useEffect(() => {
     Promise.all([
-      fetch(`${API}/publications/${username}`).then((r) => r.json()).then((r) => r.data ?? r),
-      fetch(`${API}/publications/${username}/posts/${slug}`).then((r) => r.json()).then((r) => r.data ?? r),
+      fetch(`${API}/publications/${username}`).then((r) => { if (!r.ok) throw new Error('Publication unavailable'); return r.json(); }).then((r) => r.data),
+      fetch(`${API}/publications/${username}/posts/${slug}`).then((r) => { if (!r.ok) throw new Error('Post unavailable'); return r.json(); }).then((r) => r.data),
     ])
       .then(([b, p]) => { setBlog(b); setPost(p); })
       .catch(() => setNotFound(true));
 
     fetch(`${API}/publications/${username}/posts/${slug}/comments`)
       .then((r) => r.json())
-      .then((r) => setComments(r.data ?? []));
+      .then((r) => setComments(r.data ?? []))
+      .catch(() => {});
 
     fetch(`${API}/analytics/view`, {
       method: 'POST',

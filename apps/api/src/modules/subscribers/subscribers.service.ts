@@ -43,19 +43,20 @@ export class SubscribersService {
     return { message: 'Check your email to confirm your subscription' };
   }
 
-  async confirmByToken(token: string): Promise<{ message: string }> {
-    const subscriber = await this.prisma.subscriber.findUnique({ where: { confirmToken: token } });
+  async confirmByToken(token: string): Promise<{ message: string; publication: { title: string; slug: string } }> {
+    const subscriber = await this.prisma.subscriber.findUnique({ where: { confirmToken: token }, include: { publication: { select: { title: true, slug: true } } } });
     if (!subscriber) {
       throw new BadRequestException(JSON.stringify({ code: 'subscriber_token_invalid' }));
     }
-    await this.prisma.subscriber.update({
-      where: { id: subscriber.id },
-      data: { confirmed: true, confirmedAt: new Date() },
-    });
+    if (!subscriber.confirmed) {
+      await this.prisma.subscriber.update({
+        where: { id: subscriber.id },
+        data: { confirmed: true, confirmedAt: new Date() },
+      });
+      await this.queue.add(JobName.SUBSCRIBER_WELCOME, { subscriberId: subscriber.id }, DEFAULT_JOB_OPTS);
+    }
 
-    await this.queue.add(JobName.SUBSCRIBER_WELCOME, { subscriberId: subscriber.id }, DEFAULT_JOB_OPTS);
-
-    return { message: 'Subscription confirmed' };
+    return { message: 'Subscription confirmed', publication: subscriber.publication };
   }
 
   async unsubscribeByToken(token: string): Promise<{ message: string }> {

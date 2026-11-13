@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import type { Publication, Post, Pagination } from '@/lib/types';
 import { Tag } from '@/components/ui/Tag';
@@ -20,6 +20,7 @@ export function BlogHomePage({ username, tag: initialTag }: Props) {
   const [page, setPage]             = useState(1);
   const [loadingMore, setLoadingMore] = useState(false);
   const [notFound, setNotFound]     = useState(false);
+  const [hoveredId, setHoveredId]   = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`${API}/publications/${username}`)
@@ -50,10 +51,13 @@ export function BlogHomePage({ username, tag: initialTag }: Props) {
     setLoadingMore(false);
   }
 
+  const allTags = useMemo(
+    () => Array.from(new Set(posts.flatMap((p) => p.tags.map((t) => t.name)))),
+    [posts],
+  );
   if (notFound) return <Unavailable />;
   if (!blog) return null;
 
-  const allTags   = Array.from(new Set(posts.flatMap((p) => p.tags.map((t) => t.name))));
   const accent    = blog.accentColor ?? '#2D6BE4';
   const showSub   = blog.type === 'NEWSLETTER' || blog.type === 'BOTH';
   const hasMore   = meta ? page < meta.totalPages : false;
@@ -130,24 +134,20 @@ export function BlogHomePage({ username, tag: initialTag }: Props) {
         ) : (
           <div style={{ marginTop: allTags.length > 0 ? '0' : '0' }}>
             {posts.map((post, i) => (
-              <article key={post.id}>
+              <article key={post.id} style={{ position: 'relative' }}>
                 <hr style={{ border: 'none', borderTop: '1px solid var(--color-border)', margin: 0 }} />
                 <Link href={`/${post.slug}`} style={{ textDecoration: 'none', display: 'block' }}>
                   <div
                     style={{ padding: '24px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '24px' }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget.querySelector('h2') as HTMLElement | null)?.style.setProperty('color', accent);
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget.querySelector('h2') as HTMLElement | null)?.style.setProperty('color', 'var(--color-ink)');
-                    }}
+                    onMouseEnter={() => setHoveredId(post.id)}
+                    onMouseLeave={() => setHoveredId(null)}
                   >
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <h2 style={{
                         fontFamily: 'var(--font-reading)',
                         fontSize: '19px',
                         fontWeight: 600,
-                        color: 'var(--color-ink)',
+                        color: hoveredId === post.id ? accent : 'var(--color-ink)',
                         lineHeight: 1.35,
                         marginBottom: '6px',
                         transition: 'color var(--duration-fast)',
@@ -174,6 +174,9 @@ export function BlogHomePage({ username, tag: initialTag }: Props) {
                             <span
                               key={t.id}
                               onClick={(e) => { e.preventDefault(); setActiveTag(activeTag === t.name ? null : t.name); }}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveTag(activeTag === t.name ? null : t.name); } }}
                               style={{
                                 fontSize: '12px',
                                 color: activeTag === t.name ? accent : 'var(--color-muted)',

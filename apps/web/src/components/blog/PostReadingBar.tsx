@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ReadingProgressArc } from './ReadingProgressArc';
 import { Sun, Moon, Type, MoreHorizontal } from 'lucide-react';
 
@@ -23,15 +23,18 @@ export function PostReadingBar({ blogTitle, blogHref, accentColor }: Props) {
     }
   }, []);
 
+  // Use refs to avoid re-registering the scroll listener on every frame
+  const lastYRef = useRef(0);
+
   useEffect(() => {
     function onScroll() {
       const y = window.scrollY;
-      setVisible(y < lastY || y < 60);
-      setLastY(y);
+      setVisible(y < lastYRef.current || y < 60);
+      lastYRef.current = y;
     }
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
-  }, [lastY]);
+  }, []);
 
   function toggleTheme() {
     const next = theme === 'light' ? 'dark' : 'light';

@@ -5,6 +5,7 @@ import { Publication } from '@prisma/client';
 import { CurrentPublication } from '../../common/decorators/publication.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { PrismaService } from '../../prisma/prisma.service';
 import { SubscribersService } from './subscribers.service';
 import { SubscribeDto } from './dto/subscribe.dto';
 
@@ -18,13 +19,21 @@ function requirePublication(publication: Publication | null): Publication {
 @ApiTags('subscribers')
 @Controller()
 export class SubscribersController {
-  constructor(private readonly subscribersService: SubscribersService) {}
+  constructor(private readonly subscribersService: SubscribersService, private readonly prisma: PrismaService) {}
 
   @Post('subscribe')
   @Throttle({ default: { limit: 3, ttl: 60_000 } })
   subscribe(@CurrentPublication() publication: Publication | null, @Body() dto: SubscribeDto) {
     const pub = requirePublication(publication);
     return this.subscribersService.subscribe(pub.id, pub.type, dto);
+  }
+
+  @Post('publications/:slug/subscribe')
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  async subscribeToPublication(@Param('slug') slug: string, @Body() dto: SubscribeDto) {
+    const publication = await this.prisma.publication.findFirst({ where: { slug, deletedAt: null, isPublic: true } });
+    if (!publication) throw new NotFoundException('Publication not found');
+    return this.subscribersService.subscribe(publication.id, publication.type, dto);
   }
 
   @Get('subscribe/confirm')

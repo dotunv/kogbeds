@@ -25,6 +25,7 @@ export function PostsListPage({ pubSlug }: { pubSlug: string }) {
   const [meta, setMeta]         = useState<Pagination | null>(null);
   const [page, setPage]         = useState(1);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const menuRef                 = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -54,12 +55,18 @@ export function PostsListPage({ pubSlug }: { pubSlug: string }) {
   }
 
   async function deletePost(slug: string) {
-    const tk = localStorage.getItem('access_token') ?? '';
-    await fetch(`${API}/publications/${pubSlug}/posts/${slug}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${tk}` },
-    });
-    setPosts((prev) => prev.filter((p) => p.slug !== slug));
+    try {
+      const tk = localStorage.getItem('access_token') ?? '';
+      const res = await fetch(`${API}/publications/${pubSlug}/posts/${slug}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${tk}` },
+      });
+      if (!res.ok) throw new Error(`Delete failed (${res.status})`);
+      setPosts((prev) => prev.filter((p) => p.slug !== slug));
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Failed to delete post');
+      setTimeout(() => setDeleteError(null), 5000);
+    }
     setMenuOpen(null);
   }
 
@@ -68,7 +75,7 @@ export function PostsListPage({ pubSlug }: { pubSlug: string }) {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
         <h1 style={{ fontSize: '20px', fontWeight: 600, color: 'var(--color-ink)', margin: 0 }}>Posts</h1>
-        <Link href="/dashboard/editor/new">
+        <Link href={`/dashboard/editor/new?publication=${encodeURIComponent(pubSlug)}`}>
           <Button size="sm">
             <Plus size={13} style={{ marginRight: '5px' }} />
             New post
@@ -111,10 +118,17 @@ export function PostsListPage({ pubSlug }: { pubSlug: string }) {
             {filter === 'all' ? 'No posts yet.' : `No ${filter.toLowerCase()} posts.`}
           </p>
           {filter === 'all' && (
-            <Link href="/dashboard/editor/new">
+            <Link href={`/dashboard/editor/new?publication=${encodeURIComponent(pubSlug)}`}>
               <Button size="sm">Write your first post</Button>
             </Link>
           )}
+        </div>
+      )}
+
+      {/* Delete error toast */}
+      {deleteError && (
+        <div style={{ background: 'var(--color-danger-light)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', padding: '10px 16px', marginBottom: '16px', fontSize: '13px', color: 'var(--color-danger)', fontFamily: 'var(--font-ui)' }}>
+          {deleteError}
         </div>
       )}
 
@@ -126,7 +140,7 @@ export function PostsListPage({ pubSlug }: { pubSlug: string }) {
             <div style={{ padding: '14px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
               {/* Main content */}
               <Link
-                href={`/dashboard/editor/${post.slug}`}
+                href={`/dashboard/editor/${post.slug}?publication=${encodeURIComponent(pubSlug)}`}
                 style={{ flex: 1, minWidth: 0, textDecoration: 'none' }}
               >
                 <p style={{
@@ -173,6 +187,7 @@ export function PostsListPage({ pubSlug }: { pubSlug: string }) {
                   }}
                   onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--color-muted)')}
                   onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-faint)')}
+                  aria-label="Post actions"
                 >
                   <MoreHorizontal size={15} />
                 </button>
@@ -188,7 +203,7 @@ export function PostsListPage({ pubSlug }: { pubSlug: string }) {
                     overflow: 'hidden',
                   }}>
                     <Link
-                      href={`/dashboard/editor/${post.slug}`}
+                      href={`/dashboard/editor/${post.slug}?publication=${encodeURIComponent(pubSlug)}`}
                       style={{ display: 'block', padding: '8px 14px', fontSize: '13px', color: 'var(--color-ink)', textDecoration: 'none' }}
                       onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--color-canvas)')}
                       onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}

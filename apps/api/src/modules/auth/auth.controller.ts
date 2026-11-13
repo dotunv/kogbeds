@@ -19,6 +19,7 @@ export class AuthController {
   @Throttle({ default: { limit: 3, ttl: 60_000 } })
   async register(@Body() dto: RegisterDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.authService.register(dto);
+    res.cookie('access_token', result.accessToken, this.authService.accessCookieOptions());
     res.cookie('refresh_token', result.refreshToken, this.authService.refreshCookieOptions());
     return { accessToken: result.accessToken, user: result.user };
   }
@@ -27,11 +28,20 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.authService.login(dto);
+    res.cookie('access_token', result.accessToken, this.authService.accessCookieOptions());
     res.cookie('refresh_token', result.refreshToken, this.authService.refreshCookieOptions());
     return { accessToken: result.accessToken, user: result.user };
   }
 
+  @Post('logout')
+  logout(@Res({ passthrough: true }) res: Response) {
+    this.authService.clearAccessCookie(res);
+    res.clearCookie('refresh_token', { path: '/auth' });
+    return { success: true };
+  }
+
   @Post('refresh')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async refresh(@Req() req: Request) {
     const cookies = req.cookies as Record<string, string> | undefined;
     return this.authService.refresh(cookies?.refresh_token);

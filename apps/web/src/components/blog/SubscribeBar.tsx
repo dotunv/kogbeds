@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { Button } from '@/components/ui/Button';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -19,9 +18,9 @@ export function SubscribeBar({ username, accentColor }: Props) {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`${API}/subscribe`, {
+      const res = await fetch(`${API}/publications/${encodeURIComponent(username)}/subscribe`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-blog-slug': username },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
       if (!res.ok) throw new Error('Failed');
@@ -51,6 +50,8 @@ export function SubscribeBar({ username, accentColor }: Props) {
       <form onSubmit={submit} style={{ display: 'flex', gap: '8px', maxWidth: '100%' }}>
         <input
           type="email"
+          aria-label="Email address"
+          autoComplete="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="Your email"

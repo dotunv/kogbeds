@@ -9,6 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { User } from '@prisma/client';
 import { StringValue } from 'ms';
+import type { Response } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PublicationsService } from '../publications/publications.service';
 import { LoginDto } from './dto/login.dto';
@@ -150,6 +151,25 @@ export class AuthService {
       maxAge: 7 * 24 * 60 * 60 * 1000,
       path: '/auth',
     };
+  }
+
+  accessCookieOptions(): { httpOnly: true; secure: boolean; sameSite: 'lax'; maxAge: number; path: string } {
+    return {
+      httpOnly: true,
+      secure: this.config.get<string>('NODE_ENV') === 'production',
+      sameSite: 'lax',
+      maxAge: 15 * 60 * 1000,
+      path: '/',
+    };
+  }
+
+  clearAccessCookie(res: Response): void {
+    res.clearCookie('access_token', {
+      httpOnly: true,
+      secure: this.config.get<string>('NODE_ENV') === 'production',
+      sameSite: 'lax',
+      path: '/',
+    });
   }
 
   private async issueTokens(user: User): Promise<AuthResponse> {

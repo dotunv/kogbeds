@@ -16,6 +16,7 @@ export function SubscribersPage({ pubSlug }: { pubSlug?: string }) {
   const [filter, setFilter]   = useState<Filter>('all');
   const [loading, setLoading] = useState(true);
   const [confirm, setConfirm] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -25,8 +26,14 @@ export function SubscribersPage({ pubSlug }: { pubSlug?: string }) {
   }, []);
 
   async function remove(id: string) {
-    await fetch(`${API}/subscribers/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token()}` } });
-    setSubscribers((prev) => prev.filter((s) => s.id !== id));
+    try {
+      const res = await fetch(`${API}/subscribers/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token()}` } });
+      if (!res.ok) throw new Error(`Remove failed (${res.status})`);
+      setSubscribers((prev) => prev.filter((s) => s.id !== id));
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to remove subscriber');
+      setTimeout(() => setActionError(null), 5000);
+    }
     setConfirm(null);
   }
 
@@ -60,6 +67,12 @@ export function SubscribersPage({ pubSlug }: { pubSlug?: string }) {
 
       {loading && <p style={{ color: 'var(--color-muted)', fontSize: '14px' }}>Loading…</p>}
 
+      {actionError && (
+        <div style={{ background: 'var(--color-danger-light)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', padding: '10px 16px', marginBottom: '16px', fontSize: '13px', color: 'var(--color-danger)', fontFamily: 'var(--font-ui)' }}>
+          {actionError}
+        </div>
+      )}
+
       {!loading && filtered.length === 0 && (
         <p style={{ color: 'var(--color-muted)', fontSize: '15px', padding: '32px 0' }}>
           No subscribers yet. Publish a post to start growing your audience.
@@ -85,7 +98,7 @@ export function SubscribersPage({ pubSlug }: { pubSlug?: string }) {
                   <button onClick={() => setConfirm(null)} style={{ color: 'var(--color-muted)', background: 'none', border: 'none', cursor: 'pointer', fontSize: '13px', fontFamily: 'var(--font-ui)' }}>Cancel</button>
                 </span>
               ) : (
-                <button onClick={() => setConfirm(s.id)} style={{ padding: '4px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)', opacity: 0.7, borderRadius: 'var(--radius)' }}>
+                <button onClick={() => setConfirm(s.id)} aria-label="Remove subscriber" style={{ padding: '4px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-muted)', opacity: 0.7, borderRadius: 'var(--radius)' }}>
                   <X size={14} />
                 </button>
               )}

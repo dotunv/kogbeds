@@ -9,7 +9,7 @@ import { formatDate, getPostUrl, getBlogUrl } from '@/lib/utils';
 const ROOT_DOMAIN = process.env.NEXT_PUBLIC_ROOT_DOMAIN ?? 'localhost:3000';
 const API         = process.env.NEXT_PUBLIC_API_URL     ?? 'http://localhost:3000';
 
-type PostItem = Post & { publication: { slug: string; title: string; accentColor: string } };
+type PostItem = Omit<Post, 'tags'> & { tags: string[]; publication: { slug: string; title: string; accentColor: string } };
 
 export function DiscoverPage() {
   const [posts, setPosts]         = useState<PostItem[]>([]);
@@ -19,6 +19,8 @@ export function DiscoverPage() {
   const [meta, setMeta]           = useState<Pagination | null>(null);
   const [loading, setLoading]     = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState('');
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     fetch(`${API}/discover/tags`).then((r) => r.json()).then((r) => setTags(r.data ?? [])).catch(() => {});
@@ -28,24 +30,38 @@ export function DiscoverPage() {
     setLoading(true);
     setPage(1);
     setPosts([]);
-    fetchPosts(1, activeTag).then(({ data, meta: m }) => { setPosts(data); setMeta(m); setLoading(false); });
-  }, [activeTag]);
+    setError('');
+    let cancelled = false;
+    fetchPosts(1, activeTag)
+      .then(({ data, meta: m }) => { if (!cancelled) { setPosts(data); setMeta(m); } })
+      .catch(() => { if (!cancelled) setError('Could not load posts. Please try again.'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeTag, retry]);
 
   async function fetchPosts(p: number, tag: string | null) {
     const qs = new URLSearchParams({ page: String(p), limit: '20' });
     if (tag) qs.set('tag', tag);
-    const res = await fetch(`${API}/discover?${qs}`).then((r) => r.json());
+    const response = await fetch(`${API}/discover?${qs}`);
+    if (!response.ok) throw new Error('Could not load posts');
+    const res = await response.json();
     return { data: res.data as PostItem[], meta: res.meta as Pagination };
   }
 
   async function loadMore() {
     setLoadingMore(true);
-    const next = page + 1;
-    const { data, meta: m } = await fetchPosts(next, activeTag);
-    setPosts((prev) => [...prev, ...data]);
-    setMeta(m);
-    setPage(next);
-    setLoadingMore(false);
+    setError('');
+    try {
+      const next = page + 1;
+      const { data, meta: m } = await fetchPosts(next, activeTag);
+      setPosts((prev) => [...prev, ...data]);
+      setMeta(m);
+      setPage(next);
+    } catch {
+      setError('Could not load more posts. Please try again.');
+    } finally {
+      setLoadingMore(false);
+    }
   }
 
   const hasMore = meta ? page < meta.totalPages : false;
@@ -134,9 +150,14 @@ export function DiscoverPage() {
         {/* List */}
         {loading ? (
           <div style={{ color: 'var(--color-faint)', fontSize: '14px', padding: '48px 0' }}>Loading…</div>
+        ) : error && posts.length === 0 ? (
+          <div role="alert" style={{ color: 'var(--color-muted)', padding: '48px 0' }}>
+            <p>{error}</p>
+            <Button variant="ghost" size="sm" onClick={() => setRetry((n) => n + 1)}>Try again</Button>
+          </div>
         ) : posts.length === 0 ? (
           <div style={{ color: 'var(--color-muted)', fontSize: '15px', padding: '48px 0', lineHeight: 1.6 }}>
-            No posts yet.{' '}
+            {activeTag ? `No posts tagged #${activeTag} yet. ` : 'No posts yet. '}
             <Link href="/register" style={{ color: 'var(--color-accent)', textDecoration: 'none' }}>Be the first to write.</Link>
           </div>
         ) : (
@@ -192,11 +213,11 @@ export function DiscoverPage() {
                     </time>
                     {post.tags.slice(0, 3).map((t) => (
                       <span
-                        key={t.id}
-                        onClick={(e) => { e.preventDefault(); setActiveTag(activeTag === t.name ? null : t.name); }}
+                        key={t}
+                        onClick={(e) => { e.preventDefault(); setActiveTag(activeTag === t ? null : t); }}
                         style={{ fontSize: '12px', color: 'var(--color-faint)', cursor: 'pointer' }}
                       >
-                        #{t.name}
+                        #{t}
                       </span>
                     ))}
                   </div>
@@ -207,6 +228,7 @@ export function DiscoverPage() {
           </div>
         )}
 
+        {error && posts.length > 0 && <p role="alert" style={{ color: 'var(--color-danger)', fontSize: '13px' }}>{error}</p>}
         {hasMore && (
           <div style={{ marginTop: '28px' }}>
             <Button variant="ghost" size="sm" onClick={loadMore} loading={loadingMore}>Load more</Button>

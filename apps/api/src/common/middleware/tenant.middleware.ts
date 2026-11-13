@@ -110,6 +110,7 @@ export class TenantMiddleware implements NestMiddleware, OnModuleDestroy {
   static async bustCache(config: ConfigService, hostnames: string[]): Promise<void> {
     const redisUrl = config.get<string>('REDIS_URL') ?? 'redis://127.0.0.1:6379';
     const redis = new Redis(redisUrl, { lazyConnect: true, maxRetriesPerRequest: 1 });
+    redis.on('error', () => { /* best-effort */ });
     try {
       await redis.connect();
       if (hostnames.length > 0) {
@@ -119,7 +120,7 @@ export class TenantMiddleware implements NestMiddleware, OnModuleDestroy {
       // best-effort
     } finally {
       try {
-        await redis.quit();
+        await redis.disconnect();
       } catch {
         // ignore
       }

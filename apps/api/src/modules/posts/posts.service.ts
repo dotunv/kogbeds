@@ -316,40 +316,43 @@ export class PostsService {
   }
 
   private async saveRevision(post: PostWithTags): Promise<void> {
-    const maxRevision = await this.prisma.postRevision.findFirst({
-      where: { postId: post.id },
-      orderBy: { revisionNumber: 'desc' },
-      select: { revisionNumber: true },
-    });
-    const nextNumber = (maxRevision?.revisionNumber ?? 0) + 1;
-
-    const count = await this.prisma.postRevision.count({ where: { postId: post.id } });
-    if (count >= MAX_REVISIONS) {
-      const oldest = await this.prisma.postRevision.findFirst({
+    await this.prisma.$transaction(async (tx) => {
+      const maxRevision = await tx.postRevision.findFirst({
         where: { postId: post.id },
-        orderBy: { revisionNumber: 'asc' },
+        orderBy: { revisionNumber: 'desc' },
+        select: { revisionNumber: true },
       });
-      if (oldest) {
-        await this.prisma.postRevision.delete({ where: { id: oldest.id } });
-      }
-    }
+      const nextNumber = (maxRevision?.revisionNumber ?? 0) + 1;
 
-    await this.prisma.postRevision.create({
-      data: {
-        postId: post.id,
-        title: post.title,
-        format: post.format,
-        markdownContent: post.markdownContent,
-        blocks: post.blocks == null ? Prisma.DbNull : (post.blocks as Prisma.InputJsonValue),
-        revisionNumber: nextNumber,
-      },
+      const count = await tx.postRevision.count({ where: { postId: post.id } });
+      if (count >= MAX_REVISIONS) {
+        const oldest = await tx.postRevision.findFirst({
+          where: { postId: post.id },
+          orderBy: { revisionNumber: 'asc' },
+        });
+        if (oldest) {
+          await tx.postRevision.delete({ where: { id: oldest.id } });
+        }
+      }
+
+      await tx.postRevision.create({
+        data: {
+          postId: post.id,
+          title: post.title,
+          format: post.format,
+          markdownContent: post.markdownContent,
+          blocks: post.blocks == null ? Prisma.DbNull : (post.blocks as Prisma.InputJsonValue),
+          revisionNumber: nextNumber,
+        },
+      });
     });
   }
 
   private async ensureUniqueSlug(publicationId: string, slug: string): Promise<string> {
     let candidate = slug;
     let counter = 2;
-    for (;;) {
+    const MAX_ATTEMPTS = 100;
+    while (counter <= MAX_ATTEMPTS) {
       const existing = await this.prisma.post.findFirst({
         where: { publicationId, slug: candidate, deletedAt: null },
       });
@@ -357,6 +360,7 @@ export class PostsService {
       candidate = `${slug}-${counter}`;
       counter++;
     }
+    throw new ConflictException(JSON.stringify({ code: 'post_slug_taken' }));
   }
 
   private async replacePostTags(postId: string, publicationId: string, tags: string[]): Promise<void> {

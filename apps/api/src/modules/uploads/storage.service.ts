@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createWriteStream, existsSync, mkdirSync, statSync, unlinkSync } from 'fs';
-import { join } from 'path';
+import { join, resolve, sep } from 'path';
 import { pipeline } from 'stream/promises';
 import { randomUUID } from 'crypto';
 import type { Readable } from 'stream';
@@ -56,7 +56,14 @@ export class StorageService {
   }
 
   deleteFile(publicationId: string, filename: string): void {
-    const fullPath = join(this.getUploadDir(), publicationId, filename);
+    // Sanitize: strip any path components, keep only the basename
+    const sanitized = filename.replace(/^.*[\\/]/, '');
+    if (!sanitized || sanitized === '..' || sanitized === '.') return;
+    const fullPath = join(this.getUploadDir(), publicationId, sanitized);
+    // Verify resolved path is within the upload directory (prevents traversal)
+    const resolved = resolve(fullPath);
+    const uploadRoot = resolve(this.getUploadDir());
+    if (!resolved.startsWith(uploadRoot + sep)) return;
     if (existsSync(fullPath)) {
       unlinkSync(fullPath);
     }

@@ -36,17 +36,25 @@ export class AppService {
     }
   }
 
+  private redis: Redis | null = null;
+
+  private getRedis(): Redis {
+    if (!this.redis) {
+      const redisUrl = this.config.get<string>('REDIS_URL') ?? 'redis://127.0.0.1:6379';
+      this.redis = new Redis(redisUrl, { lazyConnect: true, maxRetriesPerRequest: 1 });
+      this.redis.on('error', () => { /* best-effort health check */ });
+    }
+    return this.redis;
+  }
+
   private async checkRedis(): Promise<'ok' | 'error'> {
-    const redisUrl = this.config.get<string>('REDIS_URL') ?? 'redis://127.0.0.1:6379';
-    const client = new Redis(redisUrl, { lazyConnect: true, maxRetriesPerRequest: 1 });
     try {
-      await client.connect();
+      const client = this.getRedis();
+      if (client.status !== 'ready') await client.connect();
       const pong = await client.ping();
       return pong === 'PONG' ? 'ok' : 'error';
     } catch {
       return 'error';
-    } finally {
-      client.disconnect();
     }
   }
 }

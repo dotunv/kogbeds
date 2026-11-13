@@ -12,7 +12,7 @@ export const CurrentUser = createParamDecorator(
     const user = request.user;
 
     if (data) {
-      return user[data];
+      return user?.[data];
     }
 
     return user;

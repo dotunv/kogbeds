@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   FileText, MessageSquare, Users, BarChart2, Settings,
@@ -28,6 +28,7 @@ const ROOT_NAV = [
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const pubMatch = pathname.match(/^\/dashboard\/publications\/([^/]+)/);
   const pubSlug  = pubMatch?.[1] ?? null;
   const nav      = pubSlug ? pubNav(pubSlug) : ROOT_NAV;
@@ -40,7 +41,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   function signOut() {
     localStorage.removeItem('access_token');
     localStorage.removeItem('grizzly_username');
-    window.location.href = '/login';
+    router.push('/login');
   }
 
   function isActive(href: string) {

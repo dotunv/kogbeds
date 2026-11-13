@@ -15,6 +15,7 @@ export function CommentsPage({ pubSlug }: { pubSlug?: string }) {
   const [filter, setFilter]     = useState<Filter>('PENDING');
   const [loading, setLoading]   = useState(true);
   const [undoQueue, setUndoQueue] = useState<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -24,20 +25,38 @@ export function CommentsPage({ pubSlug }: { pubSlug?: string }) {
   }, [filter]);
 
   async function moderate(id: string, status: 'APPROVED' | 'SPAM' | 'REJECTED') {
-    await fetch(`${API}/comments/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
-      body: JSON.stringify({ status }),
-    });
-    setComments((prev) => prev.filter((c) => c.id !== id));
+    try {
+      const res = await fetch(`${API}/comments/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
+        body: JSON.stringify({ status }),
+      });
+      if (!res.ok) throw new Error(`Moderation failed (${res.status})`);
+      setComments((prev) => prev.filter((c) => c.id !== id));
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to moderate comment');
+      setTimeout(() => setActionError(null), 5000);
+    }
   }
 
   function deleteWithUndo(id: string) {
     // Remove from UI immediately; fire API after 3s unless cancelled
+    const commentToDelete = comments.find((c) => c.id === id);
     setComments((prev) => prev.filter((c) => c.id !== id));
-    const timer = setTimeout(() => {
-      fetch(`${API}/comments/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token()}` } });
-      setUndoQueue((m) => { const n = new Map(m); n.delete(id); return n; });
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API}/comments/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token()}` } });
+        if (!res.ok) throw new Error(`Delete failed (${res.status})`);
+        setUndoQueue((m) => { const n = new Map(m); n.delete(id); return n; });
+      } catch (err) {
+        // Rollback: restore the comment to the list
+        if (commentToDelete) {
+          setComments((prev) => [...prev, commentToDelete]);
+        }
+        setActionError(err instanceof Error ? err.message : 'Failed to delete comment');
+        setTimeout(() => setActionError(null), 5000);
+        setUndoQueue((m) => { const n = new Map(m); n.delete(id); return n; });
+      }
     }, 3000);
     setUndoQueue((m) => new Map(m).set(id, timer));
   }
@@ -65,6 +84,12 @@ export function CommentsPage({ pubSlug }: { pubSlug?: string }) {
       </div>
 
       {loading && <p style={{ color: 'var(--color-muted)', fontSize: '14px' }}>Loading…</p>}
+
+      {actionError && (
+        <div style={{ background: 'var(--color-danger-light)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', padding: '10px 16px', marginBottom: '16px', fontSize: '13px', color: 'var(--color-danger)', fontFamily: 'var(--font-ui)' }}>
+          {actionError}
+        </div>
+      )}
 
       {!loading && comments.length === 0 && (
         <p style={{ color: 'var(--color-muted)', fontSize: '15px', padding: '32px 0' }}>
@@ -118,6 +143,7 @@ export function CommentsPage({ pubSlug }: { pubSlug?: string }) {
               setUndoQueue(new Map());
             }}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-accent)', fontSize: '13px', fontFamily: 'var(--font-ui)' }}
+            aria-label="Undo delete"
           >
             Undo
           </button>

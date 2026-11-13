@@ -39,6 +39,7 @@ export const validateEnvironment = (
         .min(32)
         .default('test-refresh-secret-please-change-000'),
     });
+    // WARNING: These test defaults are intentionally insecure. Never use NODE_ENV=test in production.
     const parsed = testSchema.safeParse(config);
     if (!parsed.success) {
       throw new Error(

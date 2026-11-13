@@ -1,4 +1,4 @@
-import { ExecutionContext, Injectable } from '@nestjs/common';
+import { ExecutionContext, Injectable, Logger } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 
 /**
@@ -8,11 +8,16 @@ import { AuthGuard } from '@nestjs/passport';
  */
 @Injectable()
 export class OptionalJwtAuthGuard extends AuthGuard('jwt') {
+  private readonly logger = new Logger(OptionalJwtAuthGuard.name);
+
   canActivate(context: ExecutionContext) {
     return super.canActivate(context);
   }
 
-  handleRequest<TUser = unknown>(_err: unknown, user: TUser): TUser {
+  handleRequest<TUser = unknown>(err: unknown, user: TUser): TUser {
+    if (err) {
+      this.logger.debug(`JWT validation failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
     return user;
   }
 }
